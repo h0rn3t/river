@@ -133,11 +133,27 @@ jobs:
 
       - name: Test with race detector
         if: matrix.primary
-        run: make test/race TEST_DATABASE=postgres
+        run: make test/race TEST_DATABASE=postgres COVERAGE_DIR=coverage
 
       - name: Test
         if: ${{ !matrix.primary }}
         run: make test TEST_DATABASE=postgres
+
+      - name: Convert coverage
+        if: matrix.primary
+        run: go tool covdata textfmt -i=coverage -o coverage.txt
+
+      - name: Upload coverage to Codecov
+        if: matrix.primary
+        uses: codecov/codecov-action@v7
+        # Uploading is best-effort. Tests and lint gate the build, so a Codecov
+        # outage shouldn't.
+        continue-on-error: true
+        with:
+          disable_search: true
+          files: ./coverage.txt
+          flags: postgres
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   build_and_test_sqlite:
     name: build_and_test_sqlite (${{ matrix.go-version }}${{ matrix.primary && ', race' || '' }})
@@ -166,11 +182,27 @@ jobs:
 
       - name: Test with race detector
         if: matrix.primary
-        run: make test/race TEST_DATABASE=sqlite
+        run: make test/race TEST_DATABASE=sqlite COVERAGE_DIR=coverage
 
       - name: Test
         if: ${{ !matrix.primary }}
         run: make test TEST_DATABASE=sqlite
+
+      - name: Convert coverage
+        if: matrix.primary
+        run: go tool covdata textfmt -i=coverage -o coverage.txt
+
+      - name: Upload coverage to Codecov
+        if: matrix.primary
+        uses: codecov/codecov-action@v7
+        # Uploading is best-effort. Tests and lint gate the build, so a Codecov
+        # outage shouldn't.
+        continue-on-error: true
+        with:
+          disable_search: true
+          files: ./coverage.txt
+          flags: sqlite
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   build_and_test_sqlserver:
     name: build_and_test_sqlserver (${{ matrix.go-version }}, ${{ matrix.sqlserver-version }}${{ matrix.primary && ', race' || '' }})
@@ -229,11 +261,27 @@ jobs:
 
       - name: Test with race detector
         if: matrix.primary
-        run: make test/race TEST_DATABASE=sqlserver
+        run: make test/race TEST_DATABASE=sqlserver COVERAGE_DIR=coverage
 
       - name: Test
         if: ${{ !matrix.primary }}
         run: make test TEST_DATABASE=sqlserver
+
+      - name: Convert coverage
+        if: matrix.primary
+        run: go tool covdata textfmt -i=coverage -o coverage.txt
+
+      - name: Upload coverage to Codecov
+        if: matrix.primary
+        uses: codecov/codecov-action@v7
+        # Uploading is best-effort. Tests and lint gate the build, so a Codecov
+        # outage shouldn't.
+        continue-on-error: true
+        with:
+          disable_search: true
+          files: ./coverage.txt
+          flags: sqlserver
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   cli:
     strategy:

@@ -35,6 +35,23 @@ the Postgres version matrix doesn't repeat the SQLite tests. Each suite still
 runs on both supported Go versions. Only the latest combination in each matrix
 uses the race detector, marked `race` in its job title.
 
+To collect test coverage, set `COVERAGE_DIR` for `make test` or
+`make test/race`:
+
+    make test COVERAGE_DIR=coverage
+    go tool covdata percent -i=coverage
+    go tool covdata textfmt -i=coverage -o coverage.txt
+
+Coverage counts every River package a test runs, so driver code exercised by
+the shared suite in `riverdriver/riverdrivertest` counts toward its driver.
+Use an empty directory, because data from earlier runs is merged in. In CI,
+each suite's race job uploads its coverage to
+[Codecov](https://codecov.io/gh/h0rn3t/river) under the `postgres`, `sqlite`,
+or `sqlserver` flag, and Codecov merges them. Uploads from this repository
+need the Codecov upload token in the `CODECOV_TOKEN` Actions secret.
+[`codecov.yml`](../codecov.yml) excludes test infrastructure, development
+tooling, and generated sqlc code.
+
 ## Run lint
 
 Run the linter and try to autofix:

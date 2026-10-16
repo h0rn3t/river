@@ -1,4 +1,6 @@
 /.envrc
+/coverage/
+/coverage.txt
 /go.work.sum
 /internal/cmd/riverbench/riverbench
 /river

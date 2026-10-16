@@ -1,0 +1,50 @@
+# Codecov configuration. Validate changes with:
+#
+#     curl --data-binary @codecov.yml https://codecov.io/validate
+
+codecov:
+  # Postgres, SQLite, and SQL Server CI jobs each upload coverage. Wait for all
+  # of them so statuses and comments don't report a partial total.
+  notify:
+    after_n_builds: 3
+  require_ci_to_pass: true
+
+comment:
+  after_n_builds: 3
+  behavior: default
+  layout: "reach,diff,flags,files"
+  require_changes: false
+
+coverage:
+  precision: 2
+  range: "50...100"
+  round: down
+  status:
+    # Report coverage changes on pull requests without failing them.
+    patch:
+      default:
+        informational: true
+        target: auto
+    project:
+      default:
+        informational: true
+        target: auto
+        threshold: 1%
+
+# Go coverage profiles name files by import path. Map them to repository paths.
+fixes:
+  - "github.com/h0rn3t/river/::"
+
+# Test infrastructure, development tooling, and generated sqlc code.
+ignore:
+  - "internal/riverinternaltest/**"
+  - "riverdbtest/**"
+  - "riverdriver/*/internal/dbsqlc/**"
+  - "riverdriver/riverdrivertest/**"
+  - "rivershared/cmd/**"
+  - "rivershared/riversharedtest/**"
+  - "rivershared/slogtest/**"
+  - "rivershared/startstoptest/**"
+  - "rivershared/testfactory/**"
+  - "rivershared/testsignal/**"
+  - "rivershared/util/testutil/**"

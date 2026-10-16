@@ -74,6 +74,20 @@ else ifneq ($(TEST_DATABASE),all)
     $(error TEST_DATABASE must be all, postgres, sqlite, or sqlserver)
 endif
 
+# Directory to collect raw test coverage data into, like `make test
+# COVERAGE_DIR=coverage`. Tests only collect coverage when it's set. Coverage
+# counts every River package a test runs, so driver code exercised by the shared
+# driver test suite in another module is covered too. Print a summary with `go
+# tool covdata percent -i=coverage` or write a profile with `go tool covdata
+# textfmt -i=coverage -o coverage.txt`.
+COVERAGE_DIR ?=
+ifneq ($(COVERAGE_DIR),)
+    $(shell mkdir -p $(COVERAGE_DIR))
+    # Goes last in test commands because `-args` passes everything after it to
+    # test binaries.
+    coverage_flags := -coverpkg=github.com/h0rn3t/river/... -covermode=atomic -args -test.gocoverdir=$(abspath $(COVERAGE_DIR))
+endif
+
 # Definitions of following tasks look ugly, but they're done this way because to
 # produce the best/most comprehensible output by far (e.g. compared to a shell
 # loop).
@@ -87,26 +101,26 @@ $(foreach mod,$(submodules),$(eval $(call lint-target,$(mod))))
 .PHONY: test
 test:: ## Run tests (TEST_DATABASE=all, postgres, sqlite, or sqlserver)
 define test-target
-    test:: ; cd $1 && go test ./... -timeout 2m $(if $(filter %/riverdriver/riverdrivertest,$1),$(driver_test_flags))
+    test:: ; cd $1 && go test ./... -timeout 2m $(if $(filter %/riverdriver/riverdrivertest,$1),$(driver_test_flags)) $(coverage_flags)
 endef
 $(foreach mod,$(test_submodules),$(eval $(call test-target,$(mod))))
 
 # Exercise the temporary savepoint fallback as well as default transaction reuse.
-test:: ; cd ./riverdriver/riverdrivertest && RIVER_USE_LEGACY_SUBTRANSACTIONS=1 go test . $(legacy_driver_test_flags) -timeout 2m
+test:: ; cd ./riverdriver/riverdrivertest && RIVER_USE_LEGACY_SUBTRANSACTIONS=1 go test . $(legacy_driver_test_flags) -timeout 2m $(coverage_flags)
 ifeq ($(filter $(TEST_DATABASE),sqlite sqlserver),)
-test:: ; cd ./riverdriver/riverdrivertest && RIVER_USE_LEGACY_SUBTRANSACTIONS=1 go test . -run '^TestDriverRiverPgxV5$$/.*/WithTx$$' -timeout 2m
+test:: ; cd ./riverdriver/riverdrivertest && RIVER_USE_LEGACY_SUBTRANSACTIONS=1 go test . -run '^TestDriverRiverPgxV5$$/.*/WithTx$$' -timeout 2m $(coverage_flags)
 endif
 
 .PHONY: test/race
 test/race:: ## Run tests with race detector (TEST_DATABASE=all, postgres, sqlite, or sqlserver)
 define test-race-target
-    test/race:: ; cd $1 && go test ./... -race -timeout 2m $(if $(filter %/riverdriver/riverdrivertest,$1),$(driver_test_flags))
+    test/race:: ; cd $1 && go test ./... -race -timeout 2m $(if $(filter %/riverdriver/riverdrivertest,$1),$(driver_test_flags)) $(coverage_flags)
 endef
 $(foreach mod,$(test_submodules),$(eval $(call test-race-target,$(mod))))
 
-test/race:: ; cd ./riverdriver/riverdrivertest && RIVER_USE_LEGACY_SUBTRANSACTIONS=1 go test . -race $(legacy_driver_test_flags) -timeout 2m
+test/race:: ; cd ./riverdriver/riverdrivertest && RIVER_USE_LEGACY_SUBTRANSACTIONS=1 go test . -race $(legacy_driver_test_flags) -timeout 2m $(coverage_flags)
 ifeq ($(filter $(TEST_DATABASE),sqlite sqlserver),)
-test/race:: ; cd ./riverdriver/riverdrivertest && RIVER_USE_LEGACY_SUBTRANSACTIONS=1 go test . -race -run '^TestDriverRiverPgxV5$$/.*/WithTx$$' -timeout 2m
+test/race:: ; cd ./riverdriver/riverdrivertest && RIVER_USE_LEGACY_SUBTRANSACTIONS=1 go test . -race -run '^TestDriverRiverPgxV5$$/.*/WithTx$$' -timeout 2m $(coverage_flags)
 endif
 
 .PHONY: bench

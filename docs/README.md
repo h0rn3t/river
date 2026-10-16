@@ -1,4 +1,4 @@
-# River [![Build Status](https://github.com/h0rn3t/river/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/h0rn3t/river/actions) [![Go Reference](https://pkg.go.dev/badge/github.com/h0rn3t/river.svg)](https://pkg.go.dev/github.com/h0rn3t/river)
+# River [![Build Status](https://github.com/h0rn3t/river/actions/workflows/ci.yaml/badge.svg?branch=master&event=push)](https://github.com/h0rn3t/river/actions/workflows/ci.yaml?query=branch%3Amaster+event%3Apush) [![codecov](https://codecov.io/gh/h0rn3t/river/branch/master/graph/badge.svg)](https://codecov.io/gh/h0rn3t/river) [![Go Reference](https://pkg.go.dev/badge/github.com/h0rn3t/river.svg)](https://pkg.go.dev/github.com/h0rn3t/river)
 
 River — швидка транзакційна черга задач для Go, яка зберігає задачі в Postgres,
 SQLite або Microsoft SQL Server. Вона автоматично повторює задачі після помилок,
@@ -302,6 +302,9 @@ ALTER DATABASE river SET READ_COMMITTED_SNAPSHOT ON;
 SQL Server запускаються, лише коли задано `TEST_SQLSERVER_DATABASE_URL`; там
 само описано, як підняти SQL Server у Docker.
 
+CI збирає покриття тестами з Postgres, SQLite і SQL Server і завантажує його в
+[Codecov][codecov]. Локально покриття збирає `make test COVERAGE_DIR=coverage`.
+
 [`Client`]: https://pkg.go.dev/github.com/h0rn3t/river#Client
 [`Client.InsertTx`]: https://pkg.go.dev/github.com/h0rn3t/river#Client.InsertTx
 [`InsertAndWork` example]: https://pkg.go.dev/github.com/h0rn3t/river#example-package-InsertAndWork
@@ -325,6 +328,7 @@ SQL Server запускаються, лише коли задано `TEST_SQLSER
 [Unique jobs]: https://riverqueue.com/docs/unique-jobs
 [Web UI]: https://github.com/riverqueue/riverui
 [Work functions]: https://riverqueue.com/docs/work-functions
+[codecov]: https://codecov.io/gh/h0rn3t/river
 [developing River]: https://github.com/h0rn3t/river/blob/master/docs/development.md
 [docs]: https://riverqueue.com/docs
 [driver]: https://riverqueue.com/docs/database-drivers
