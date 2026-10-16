@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-10-16
+
 ### Added
 
 - Added `riverdriver/riversqlserver`, a driver for Microsoft SQL Server 2022 or newer and Azure SQL Database, used with a `database/sql` pool from `github.com/microsoft/go-mssqldb`. SQL Server has no equivalent of `LISTEN`/`NOTIFY`, so clients run in poll only mode, and `JobListParams.Metadata` isn't supported. The `river` CLI accepts `sqlserver://` database URLs.
