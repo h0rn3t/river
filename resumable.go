@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/riverqueue/river/internal/riverplugin"
+	"github.com/h0rn3t/river/internal/riverplugin"
 )
 
 var (

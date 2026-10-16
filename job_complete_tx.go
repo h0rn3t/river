@@ -6,10 +6,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/riverqueue/river/internal/execution"
-	"github.com/riverqueue/river/internal/jobexecutor"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/execution"
+	"github.com/h0rn3t/river/internal/jobexecutor"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // JobCompleteTx marks the job as completed as part of transaction tx. If tx is

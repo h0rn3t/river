@@ -9,10 +9,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/internal/rivercommon"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/util/timeutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/rivercommon"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/util/timeutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func TestDefault_NextRetry(t *testing.T) {

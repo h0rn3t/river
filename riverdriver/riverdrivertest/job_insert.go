@@ -16,11 +16,11 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
-	"github.com/riverqueue/river/internal/rivercommon"
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/testfactory"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/rivercommon"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/testfactory"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func exerciseJobInsert[TTx any](ctx context.Context, t *testing.T,
@@ -531,7 +531,7 @@ func exerciseJobInsert[TTx any](ctx context.Context, t *testing.T,
 				// CONFLICT` and therefore returns an error here. Callers that
 				// want to bulk insert unique jobs should use the returning
 				// variant instead.
-				if reflect.TypeOf(bundle.driver).Elem().PkgPath() == "github.com/riverqueue/river/riverdriver/riverpgxv5" {
+				if reflect.TypeOf(bundle.driver).Elem().PkgPath() == "github.com/h0rn3t/river/riverdriver/riverpgxv5" {
 					var pgErr *pgconn.PgError
 					require.ErrorAs(t, err, &pgErr)
 					require.Equal(t, pgerrcode.UniqueViolation, pgErr.Code)

@@ -16,10 +16,10 @@ import (
 	"github.com/jackc/puddle/v2"
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/sqlctemplate"
-	"github.com/riverqueue/river/rivershared/testsignal"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/sqlctemplate"
+	"github.com/h0rn3t/river/rivershared/testsignal"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // Verify interface compliance.

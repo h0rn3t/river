@@ -11,15 +11,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivershared/startstop"
-	"github.com/riverqueue/river/rivershared/testsignal"
-	"github.com/riverqueue/river/rivershared/util/maputil"
-	"github.com/riverqueue/river/rivershared/util/serviceutil"
-	"github.com/riverqueue/river/rivershared/util/sliceutil"
-	"github.com/riverqueue/river/rivershared/util/testutil"
-	"github.com/riverqueue/river/rivershared/util/timeoututil"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivershared/startstop"
+	"github.com/h0rn3t/river/rivershared/testsignal"
+	"github.com/h0rn3t/river/rivershared/util/maputil"
+	"github.com/h0rn3t/river/rivershared/util/serviceutil"
+	"github.com/h0rn3t/river/rivershared/util/sliceutil"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/rivershared/util/timeoututil"
 )
 
 type NotificationTopic string

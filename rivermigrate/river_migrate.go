@@ -17,13 +17,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivershared/levenshtein"
-	"github.com/riverqueue/river/rivershared/sqlctemplate"
-	"github.com/riverqueue/river/rivershared/util/dbutil"
-	"github.com/riverqueue/river/rivershared/util/maputil"
-	"github.com/riverqueue/river/rivershared/util/sliceutil"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivershared/levenshtein"
+	"github.com/h0rn3t/river/rivershared/sqlctemplate"
+	"github.com/h0rn3t/river/rivershared/util/dbutil"
+	"github.com/h0rn3t/river/rivershared/util/maputil"
+	"github.com/h0rn3t/river/rivershared/util/sliceutil"
 )
 
 const (
@@ -98,8 +98,8 @@ type Migrator[TTx any] struct {
 // but it can be omitted because it'll generally always be inferred from the
 // driver. For example:
 //
-//	import "github.com/riverqueue/river/riverdriver/riverpgxv5"
-//	import "github.com/riverqueue/rivermigrate"
+//	import "github.com/h0rn3t/river/riverdriver/riverpgxv5"
+//	import "github.com/h0rn3t/river/rivermigrate"
 //
 //	...
 //

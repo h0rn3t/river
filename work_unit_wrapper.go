@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/riverqueue/river/internal/pluginlookup"
-	"github.com/riverqueue/river/internal/workunit"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/pluginlookup"
+	"github.com/h0rn3t/river/internal/workunit"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // workUnitFactoryWrapper wraps a Worker to implement workUnitFactory.

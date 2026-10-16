@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/internal/rivercommon"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/util/sliceutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/internal/rivercommon"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/util/sliceutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // testingT is an interface wrapper around *testing.T that's implemented by all

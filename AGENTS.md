@@ -17,7 +17,7 @@
 
 ## Code Style Guidelines
 
-- **Imports**: use gci sections - Standard, Default, github.com/riverqueue.
+- **Imports**: use gci sections - Standard, Default, github.com/h0rn3t.
 - **Formatting**: use gofmt, gofumpt, goimports.
 - **JSON tags**: use snake_case for JSON field tags.
 - **Dependencies**: minimize external dependencies beyond standard library and pgx.

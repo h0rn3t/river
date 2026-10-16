@@ -8,10 +8,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/internal/rivercommon"
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/internal/rivercommon"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
 )
 
 type resumableTestArgs struct{}

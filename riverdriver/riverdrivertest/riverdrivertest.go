@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver"
 )
 
 // Exercise fully exercises a driver. The driver's listener is exercised if

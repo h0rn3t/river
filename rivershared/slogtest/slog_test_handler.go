@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/riverqueue/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
 )
 
 // NewLogger returns a new slog text logger that outputs to `t.Log`. This helps

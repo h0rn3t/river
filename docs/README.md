@@ -1,4 +1,4 @@
-# River [![Build Status](https://github.com/riverqueue/river/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/riverqueue/river/actions) [![Go Reference](https://pkg.go.dev/badge/github.com/riverqueue/river.svg)](https://pkg.go.dev/github.com/riverqueue/river)
+# River [![Build Status](https://github.com/h0rn3t/river/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/h0rn3t/river/actions) [![Go Reference](https://pkg.go.dev/badge/github.com/h0rn3t/river.svg)](https://pkg.go.dev/github.com/h0rn3t/river)
 
 River is a fast, transactional job queue for Go backed by Postgres or SQLite.
 It includes automatic retries, scheduling, unique jobs, and a web UI.
@@ -181,11 +181,11 @@ See the [`InsertAndWork` example] for complete code.
 
 See [developing River].
 
-[`Client`]: https://pkg.go.dev/github.com/riverqueue/river#Client
-[`Client.InsertTx`]: https://pkg.go.dev/github.com/riverqueue/river#Client.InsertTx
-[`InsertAndWork` example]: https://pkg.go.dev/github.com/riverqueue/river#example-package-InsertAndWork
-[`JobArgs`]: https://pkg.go.dev/github.com/riverqueue/river#JobArgs
-[`Worker`]: https://pkg.go.dev/github.com/riverqueue/river#Worker
+[`Client`]: https://pkg.go.dev/github.com/h0rn3t/river#Client
+[`Client.InsertTx`]: https://pkg.go.dev/github.com/h0rn3t/river#Client.InsertTx
+[`InsertAndWork` example]: https://pkg.go.dev/github.com/h0rn3t/river#example-package-InsertAndWork
+[`JobArgs`]: https://pkg.go.dev/github.com/h0rn3t/river#JobArgs
+[`Worker`]: https://pkg.go.dev/github.com/h0rn3t/river#Worker
 [Batch job insertion]: https://riverqueue.com/docs/batch-job-insertion
 [Cancelling jobs]: https://riverqueue.com/docs/cancelling-jobs
 [Error and panic handling]: https://riverqueue.com/docs/error-handling
@@ -199,10 +199,10 @@ See [developing River].
 [Unique jobs]: https://riverqueue.com/docs/unique-jobs
 [Web UI]: https://github.com/riverqueue/riverui
 [Work functions]: https://riverqueue.com/docs/work-functions
-[developing River]: https://github.com/riverqueue/river/blob/master/docs/development.md
+[developing River]: https://github.com/h0rn3t/river/blob/master/docs/development.md
 [docs]: https://riverqueue.com/docs
 [driver]: https://riverqueue.com/docs/database-drivers
-[godoc]: https://pkg.go.dev/github.com/riverqueue/river
+[godoc]: https://pkg.go.dev/github.com/h0rn3t/river
 [graceful shutdown]: https://riverqueue.com/docs/graceful-shutdown
 [homepage]: https://riverqueue.com
 [maintenance services]: https://riverqueue.com/docs/maintenance-services

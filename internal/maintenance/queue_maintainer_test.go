@@ -8,17 +8,17 @@ import (
 	"github.com/robfig/cron/v3"
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/internal/riverinternaltest/sharedtx"
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivershared/riversharedmaintenance"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/startstop"
-	"github.com/riverqueue/river/rivershared/startstoptest"
-	"github.com/riverqueue/river/rivershared/testsignal"
-	"github.com/riverqueue/river/rivershared/util/testutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/riverinternaltest/sharedtx"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivershared/riversharedmaintenance"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/startstop"
+	"github.com/h0rn3t/river/rivershared/startstoptest"
+	"github.com/h0rn3t/river/rivershared/testsignal"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 type testService struct {

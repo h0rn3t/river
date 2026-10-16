@@ -11,12 +11,12 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/sqlctemplate"
-	"github.com/riverqueue/river/rivershared/testsignal"
-	"github.com/riverqueue/river/rivershared/util/urlutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/sqlctemplate"
+	"github.com/h0rn3t/river/rivershared/testsignal"
+	"github.com/h0rn3t/river/rivershared/util/urlutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // Verify interface compliance.

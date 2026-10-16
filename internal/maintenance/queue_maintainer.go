@@ -4,9 +4,9 @@ import (
 	"context"
 	"reflect"
 
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivershared/startstop"
-	"github.com/riverqueue/river/rivershared/util/maputil"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivershared/startstop"
+	"github.com/h0rn3t/river/rivershared/util/maputil"
 )
 
 // QueueMaintainer runs regular maintenance operations against job queues, like

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // ErrJobCancelledRemotely is a sentinel error indicating that the job was cancelled remotely.

@@ -1,4 +1,4 @@
-module github.com/riverqueue/river/rivertype
+module github.com/h0rn3t/river/rivertype
 
 go 1.26.0
 

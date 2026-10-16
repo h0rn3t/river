@@ -6,10 +6,10 @@ import (
 
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver/riversqlite"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/riverdriver/riversqlite"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
 )
 
 // Example_libSQL demonstrates use of River's SQLite driver with libSQL (a

@@ -12,12 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
-	"github.com/riverqueue/river/internal/notifier"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/testfactory"
-	"github.com/riverqueue/river/rivershared/uniquestates"
-	"github.com/riverqueue/river/rivershared/util/sliceutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/notifier"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/testfactory"
+	"github.com/h0rn3t/river/rivershared/uniquestates"
+	"github.com/h0rn3t/river/rivershared/util/sliceutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func exerciseJobUpdate[TTx any](ctx context.Context, t *testing.T, executorWithTx func(ctx context.Context, t *testing.T) (riverdriver.Executor, riverdriver.Driver[TTx])) {

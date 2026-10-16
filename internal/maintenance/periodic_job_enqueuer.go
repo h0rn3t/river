@@ -10,19 +10,19 @@ import (
 
 	"github.com/tidwall/sjson"
 
-	"github.com/riverqueue/river/internal/pluginlookup"
-	"github.com/riverqueue/river/internal/rivercommon"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivershared/riverpilot"
-	"github.com/riverqueue/river/rivershared/riversharedmaintenance"
-	"github.com/riverqueue/river/rivershared/startstop"
-	"github.com/riverqueue/river/rivershared/testsignal"
-	"github.com/riverqueue/river/rivershared/util/maputil"
-	"github.com/riverqueue/river/rivershared/util/sliceutil"
-	"github.com/riverqueue/river/rivershared/util/testutil"
-	"github.com/riverqueue/river/rivershared/util/timeutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/pluginlookup"
+	"github.com/h0rn3t/river/internal/rivercommon"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivershared/riverpilot"
+	"github.com/h0rn3t/river/rivershared/riversharedmaintenance"
+	"github.com/h0rn3t/river/rivershared/startstop"
+	"github.com/h0rn3t/river/rivershared/testsignal"
+	"github.com/h0rn3t/river/rivershared/util/maputil"
+	"github.com/h0rn3t/river/rivershared/util/sliceutil"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/rivershared/util/timeutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // ErrNoJobToInsert can be returned by a PeriodicJob's JobToInsertFunc to

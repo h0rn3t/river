@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver"
 )
 
 func exerciseSchemaIntrospection[TTx any](ctx context.Context, t *testing.T,

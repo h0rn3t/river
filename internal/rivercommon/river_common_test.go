@@ -19,7 +19,7 @@ func TestJobKindRE(t *testing.T) {
 	require.Regexp(t, UserSpecifiedIDOrKindRE, "with[brackets]")
 	require.Regexp(t, UserSpecifiedIDOrKindRE, "with<triangle_brackets>")
 	require.Regexp(t, UserSpecifiedIDOrKindRE, "with/slash")
-	require.Regexp(t, UserSpecifiedIDOrKindRE, "JobArgsReflectKind[github.com/riverqueue/river.JobArgs·12]")
+	require.Regexp(t, UserSpecifiedIDOrKindRE, "JobArgsReflectKind[github.com/h0rn3t/river.JobArgs·12]")
 
 	require.NotRegexp(t, UserSpecifiedIDOrKindRE, "with space")
 	require.NotRegexp(t, UserSpecifiedIDOrKindRE, "with,comma")

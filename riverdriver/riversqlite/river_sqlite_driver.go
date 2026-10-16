@@ -39,15 +39,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riversqlite/internal/dbsqlc"
-	"github.com/riverqueue/river/rivershared/sqlctemplate"
-	"github.com/riverqueue/river/rivershared/uniquestates"
-	"github.com/riverqueue/river/rivershared/util/dbutil"
-	"github.com/riverqueue/river/rivershared/util/randutil"
-	"github.com/riverqueue/river/rivershared/util/savepointutil"
-	"github.com/riverqueue/river/rivershared/util/sliceutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riversqlite/internal/dbsqlc"
+	"github.com/h0rn3t/river/rivershared/sqlctemplate"
+	"github.com/h0rn3t/river/rivershared/uniquestates"
+	"github.com/h0rn3t/river/rivershared/util/dbutil"
+	"github.com/h0rn3t/river/rivershared/util/randutil"
+	"github.com/h0rn3t/river/rivershared/util/savepointutil"
+	"github.com/h0rn3t/river/rivershared/util/sliceutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 //go:embed migration/*/*.sql

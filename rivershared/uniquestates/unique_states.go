@@ -3,7 +3,7 @@ package uniquestates
 import (
 	"slices"
 
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func UniqueBitmaskToStates(mask byte) []rivertype.JobState {

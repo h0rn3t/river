@@ -4,8 +4,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // CircuitBreakerOptions are options for CircuitBreaker.

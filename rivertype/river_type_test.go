@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func TestJobRow_Output(t *testing.T) {

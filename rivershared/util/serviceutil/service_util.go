@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/riverqueue/river/rivershared/util/timeutil"
+	"github.com/h0rn3t/river/rivershared/util/timeutil"
 )
 
 // CancellableSleep sleeps for the given duration, but returns early if context

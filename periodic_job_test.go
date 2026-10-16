@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/internal/maintenance"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/internal/maintenance"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
 )
 
 func TestNeverSchedule(t *testing.T) {

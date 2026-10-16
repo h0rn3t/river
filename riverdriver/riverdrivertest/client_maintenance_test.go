@@ -9,11 +9,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/testsignal"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/testsignal"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func exerciseClientMaintenanceStartRecovery[TTx any](ctx context.Context, t *testing.T, driver riverdriver.Driver[TTx], schema string, pollOnly bool) {

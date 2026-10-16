@@ -8,10 +8,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
 )
 
 type ContextClientArgs struct{}
@@ -35,7 +35,7 @@ func (w *ContextClientWorker) Work(ctx context.Context, job *river.Job[ContextCl
 
 // ExampleClientFromContext_pgx demonstrates how to extract the River client
 // from the worker context when using the pgx/v5 driver.
-// ([github.com/riverqueue/river/riverdriver/riverpgxv5]).
+// ([github.com/h0rn3t/river/riverdriver/riverpgxv5]).
 func ExampleClientFromContext_pgx() {
 	ctx := context.Background()
 

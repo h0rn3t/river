@@ -11,18 +11,18 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/internal/pluginlookup"
-	"github.com/riverqueue/river/internal/workunit"
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivershared/riverpilot"
-	"github.com/riverqueue/river/rivershared/riversharedmaintenance"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/startstoptest"
-	"github.com/riverqueue/river/rivershared/testfactory"
-	"github.com/riverqueue/river/rivershared/util/timeutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/pluginlookup"
+	"github.com/h0rn3t/river/internal/workunit"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river/rivershared/riverpilot"
+	"github.com/h0rn3t/river/rivershared/riversharedmaintenance"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/startstoptest"
+	"github.com/h0rn3t/river/rivershared/testfactory"
+	"github.com/h0rn3t/river/rivershared/util/timeutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // callbackWorkUnitFactory wraps a Worker to implement workUnitFactory.

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/riverqueue/river/internal/jobexecutor"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/jobexecutor"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func BenchmarkMiddlewareWorkAppend(b *testing.B) {

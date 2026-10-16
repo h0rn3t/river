@@ -34,8 +34,8 @@ func archetype() *Archetype {
 func TestLastPkgPathSegmentIfNotRiver(t *testing.T) {
 	t.Parallel()
 
-	require.Empty(t, lastPkgPathSegmentIfNotRiver("github.com/riverqueue/river"))
-	require.Equal(t, "riverlog.", lastPkgPathSegmentIfNotRiver("github.com/riverqueue/river/riverlog"))
+	require.Empty(t, lastPkgPathSegmentIfNotRiver("github.com/h0rn3t/river"))
+	require.Equal(t, "riverlog.", lastPkgPathSegmentIfNotRiver("github.com/h0rn3t/river/riverlog"))
 	require.Equal(t, "riverui.", lastPkgPathSegmentIfNotRiver("github.com/riverqueue/riverui"))
 	require.Empty(t, lastPkgPathSegmentIfNotRiver(""))
 	require.Empty(t, lastPkgPathSegmentIfNotRiver("/"))

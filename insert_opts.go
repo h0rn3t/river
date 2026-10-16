@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // Regular expression to which the format of tags must comply. Mainly, no

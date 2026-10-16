@@ -3,8 +3,8 @@ package river
 import (
 	"time"
 
-	"github.com/riverqueue/river/internal/retrypolicy"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/retrypolicy"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // ClientRetryPolicy is an interface that can be implemented to provide a retry

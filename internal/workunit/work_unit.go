@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/riverqueue/river/internal/pluginlookup"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/pluginlookup"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // WorkUnit provides an interface to a struct that wraps a job to be done

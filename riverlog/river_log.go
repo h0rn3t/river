@@ -14,9 +14,9 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"github.com/riverqueue/river/internal/jobexecutor"
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/jobexecutor"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 const (

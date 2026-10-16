@@ -8,10 +8,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivershared/util/dbutil"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river/rivershared/util/dbutil"
 )
 
 func TestSafeIdentifier(t *testing.T) {

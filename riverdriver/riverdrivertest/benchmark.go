@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/testfactory"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/testfactory"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func Benchmark[TTx any](ctx context.Context, b *testing.B,

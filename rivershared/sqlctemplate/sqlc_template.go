@@ -50,7 +50,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/riverqueue/river/rivershared/util/maputil"
+	"github.com/h0rn3t/river/rivershared/util/maputil"
 )
 
 // Context container added by WithReplacements.

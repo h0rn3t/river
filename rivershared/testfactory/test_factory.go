@@ -12,10 +12,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/internal/rivercommon"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/util/ptrutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/rivercommon"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/util/ptrutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 type JobOpts struct {

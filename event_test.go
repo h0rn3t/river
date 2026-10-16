@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/internal/jobstats"
+	"github.com/h0rn3t/river/internal/jobstats"
 )
 
 func TestJobStatisticsFromInternal(t *testing.T) {

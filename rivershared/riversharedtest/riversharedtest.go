@@ -21,9 +21,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivershared/slogtest"
-	"github.com/riverqueue/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivershared/slogtest"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
 )
 
 // BaseServiceArchetype returns a new base service suitable for use in tests.

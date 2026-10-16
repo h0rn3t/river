@@ -3,7 +3,7 @@ package dbutil
 import (
 	"testing"
 
-	"github.com/riverqueue/river/internal/riverinternaltest"
+	"github.com/h0rn3t/river/internal/riverinternaltest"
 )
 
 func TestMain(m *testing.M) {

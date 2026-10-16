@@ -11,11 +11,11 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/testfactory"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/testfactory"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // Always use this set of options on the first invocation of TestSchema in
@@ -250,8 +250,8 @@ func TestTestSchemaReuse(t *testing.T) { //nolint:paralleltest
 func TestPackageFromFunc(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, "river", packageFromFunc("github.com/riverqueue/river.Test_Client.func1"))
-	require.Equal(t, "jobcompleter", packageFromFunc("github.com/riverqueue/river/internal/jobcompleter.testCompleterWait"))
+	require.Equal(t, "river", packageFromFunc("github.com/h0rn3t/river.Test_Client.func1"))
+	require.Equal(t, "jobcompleter", packageFromFunc("github.com/h0rn3t/river/internal/jobcompleter.testCompleterWait"))
 }
 
 func TestTestTx(t *testing.T) {

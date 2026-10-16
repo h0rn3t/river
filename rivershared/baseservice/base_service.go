@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // Archetype contains the set of base service properties that are immutable, or
@@ -126,9 +126,9 @@ func (g *UnStubbableTimeGenerator) StubNow(now time.Time) time.Time {
 // empty string so that top-level structs aren't prefixed but sub-packages
 // structs are.
 //
-//   - github.com/riverqueue/river          -> ""
-//   - github.com/riverqueue/river/riverlog -> "riverlog."
-//   - github.com/riverqueue/riverui        -> "riverui."
+//   - github.com/h0rn3t/river          -> ""
+//   - github.com/h0rn3t/river/riverlog -> "riverlog."
+//   - github.com/riverqueue/riverui    -> "riverui."
 //
 // Helps produce log-friendly service names like `riverlog.Middleware`.
 func lastPkgPathSegmentIfNotRiver(pkgPath string) string {

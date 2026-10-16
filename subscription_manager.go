@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/riverqueue/river/internal/jobcompleter"
-	"github.com/riverqueue/river/internal/jobstats"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivershared/startstop"
-	"github.com/riverqueue/river/rivershared/util/sliceutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/jobcompleter"
+	"github.com/h0rn3t/river/internal/jobstats"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivershared/startstop"
+	"github.com/h0rn3t/river/rivershared/util/sliceutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 type subscriptionManager struct {

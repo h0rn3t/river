@@ -17,16 +17,16 @@ import (
 	_ "modernc.org/sqlite"
 	_ "turso.tech/database/tursogo"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riverdatabasesql"
-	"github.com/riverqueue/river/riverdriver/riverdrivertest"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/riverdriver/riversqlite"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/util/urlutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riverdatabasesql"
+	"github.com/h0rn3t/river/riverdriver/riverdrivertest"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river/riverdriver/riversqlite"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/util/urlutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func TestDriverRiverDatabaseSQLLibPQ(t *testing.T) {

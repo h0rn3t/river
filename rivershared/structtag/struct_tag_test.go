@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/rivershared/util/testutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func TestEscapePathComponent(t *testing.T) {

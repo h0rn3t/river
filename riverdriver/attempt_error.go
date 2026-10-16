@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // UnmarshalAttemptError decodes a stored attempt error, using ordinary JSON

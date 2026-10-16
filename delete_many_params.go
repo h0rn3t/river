@@ -1,8 +1,8 @@
 package river
 
 import (
-	"github.com/riverqueue/river/internal/dblist"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/dblist"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // JobDeleteManyParams specifies the parameters for a JobDeleteMany query. It

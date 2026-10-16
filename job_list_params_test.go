@@ -9,10 +9,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/internal/dblist"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/dblist"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func Test_JobListCursor_JobListCursorFromJob(t *testing.T) {

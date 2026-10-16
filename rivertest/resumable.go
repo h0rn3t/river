@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/internal/rivercommon"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/internal/rivercommon"
 )
 
 // ResumableStepAfter configures insert options so that the job resumes after

@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/riverqueue/river/internal/leadership"
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivershared/startstop"
-	"github.com/riverqueue/river/rivershared/testsignal"
-	"github.com/riverqueue/river/rivershared/util/serviceutil"
-	"github.com/riverqueue/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/internal/leadership"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivershared/startstop"
+	"github.com/h0rn3t/river/rivershared/testsignal"
+	"github.com/h0rn3t/river/rivershared/util/serviceutil"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
 )
 
 const queueMaintainerMaxStartAttempts = 3

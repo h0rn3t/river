@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"runtime"
 
-	"github.com/riverqueue/river"
+	"github.com/h0rn3t/river"
 )
 
 // Example_jobStuckHandlerGoroutineDump demonstrates how to capture and log a

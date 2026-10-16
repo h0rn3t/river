@@ -94,7 +94,7 @@ flags:
     git push --tags
     ```
 
-5. Cut a new GitHub release by visiting [new release](https://github.com/riverqueue/river/releases/new), selecting the new tag, and copying in the version's `CHANGELOG.md` content as the release body.
+5. Cut a new GitHub release by visiting [new release](https://github.com/h0rn3t/river/releases/new), selecting the new tag, and copying in the version's `CHANGELOG.md` content as the release body.
 
 ### Updating Go or toolchain versions in all `go.mod` files
 

@@ -10,9 +10,9 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riversqlserver"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riversqlserver"
 )
 
 // sqlServerDatabaseURLEnv is the environment variable containing the URL of

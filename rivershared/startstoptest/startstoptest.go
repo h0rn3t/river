@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/rivershared/startstop"
+	"github.com/h0rn3t/river/rivershared/startstop"
 )
 
 // Stress is a test helper that puts stress on a service's start and stop

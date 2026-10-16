@@ -6,12 +6,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivermigrate"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/util/randutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivermigrate"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/util/randutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func exerciseSchemaName[TTx any](ctx context.Context, t *testing.T,

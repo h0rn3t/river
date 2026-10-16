@@ -3,7 +3,7 @@ package levenshtein_test
 import (
 	"testing"
 
-	"github.com/riverqueue/river/rivershared/levenshtein"
+	"github.com/h0rn3t/river/rivershared/levenshtein"
 )
 
 func TestSanity(t *testing.T) {

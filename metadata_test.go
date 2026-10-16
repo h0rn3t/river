@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/internal/jobexecutor"
+	"github.com/h0rn3t/river/internal/jobexecutor"
 )
 
 func TestMetadataSet(t *testing.T) {

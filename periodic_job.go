@@ -3,10 +3,10 @@ package river
 import (
 	"time"
 
-	"github.com/riverqueue/river/internal/maintenance"
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivershared/util/sliceutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/maintenance"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivershared/util/sliceutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // PeriodicSchedule is a schedule for a periodic job. Periodic jobs should

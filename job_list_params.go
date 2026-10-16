@@ -8,8 +8,8 @@ import (
 	"maps"
 	"time"
 
-	"github.com/riverqueue/river/internal/dblist"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/dblist"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // JobListCursor is used to specify a starting point for a paginated

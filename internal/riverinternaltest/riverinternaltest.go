@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/riverqueue/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
 )
 
 // SchedulerShortInterval is an artificially short interval for the scheduler

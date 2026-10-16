@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/riverqueue/river/internal/jobexecutor"
+	"github.com/h0rn3t/river/internal/jobexecutor"
 )
 
 var errMetadataNotSettable = errors.New("MetadataSet must be called within a worker, worker middleware, or work hook")

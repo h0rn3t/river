@@ -14,14 +14,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/startstoptest"
-	"github.com/riverqueue/river/rivershared/util/maputil"
-	"github.com/riverqueue/river/rivershared/util/randutil"
-	"github.com/riverqueue/river/rivershared/util/serviceutil"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/startstoptest"
+	"github.com/h0rn3t/river/rivershared/util/maputil"
+	"github.com/h0rn3t/river/rivershared/util/randutil"
+	"github.com/h0rn3t/river/rivershared/util/serviceutil"
 )
 
 func TestNotificationTopicLongest(t *testing.T) {

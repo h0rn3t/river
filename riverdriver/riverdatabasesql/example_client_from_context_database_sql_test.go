@@ -11,13 +11,13 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver/riverdatabasesql"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/util/slogutil"
-	"github.com/riverqueue/river/rivershared/util/testutil"
-	"github.com/riverqueue/river/rivershared/util/urlutil"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver/riverdatabasesql"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/util/slogutil"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/rivershared/util/urlutil"
 )
 
 type ContextClientSQLArgs struct{}
@@ -41,7 +41,7 @@ func (w *ContextClientSQLWorker) Work(ctx context.Context, job *river.Job[Contex
 
 // ExampleClientFromContext_databaseSQL demonstrates how to extract the River
 // client from the worker context when using the [database/sql] driver.
-// ([github.com/riverqueue/river/riverdriver/riverdatabasesql]).
+// ([github.com/h0rn3t/river/riverdriver/riverdatabasesql]).
 func ExampleClientFromContext_databaseSQL() {
 	ctx := context.Background()
 

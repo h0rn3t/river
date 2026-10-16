@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
 )
 
 func TestLimiter(t *testing.T) {

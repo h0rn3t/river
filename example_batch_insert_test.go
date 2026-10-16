@@ -6,10 +6,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
 )
 
 type BatchInsertArgs struct{}

@@ -1,4 +1,4 @@
-module github.com/riverqueue/river/riverdriver/riverdrivertest
+module github.com/h0rn3t/river/riverdriver/riverdrivertest
 
 go 1.26.0
 
@@ -10,14 +10,14 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/lib/pq v1.12.3
 	github.com/microsoft/go-mssqldb v1.11.2
-	github.com/riverqueue/river v0.49.0
-	github.com/riverqueue/river/riverdriver v0.49.0
-	github.com/riverqueue/river/riverdriver/riverdatabasesql v0.49.0
-	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.49.0
-	github.com/riverqueue/river/riverdriver/riversqlite v0.49.0
-	github.com/riverqueue/river/riverdriver/riversqlserver v0.0.0-00010101000000-000000000000
-	github.com/riverqueue/river/rivershared v0.49.0
-	github.com/riverqueue/river/rivertype v0.49.0
+	github.com/h0rn3t/river v0.50.0
+	github.com/h0rn3t/river/riverdriver v0.50.0
+	github.com/h0rn3t/river/riverdriver/riverdatabasesql v0.50.0
+	github.com/h0rn3t/river/riverdriver/riverpgxv5 v0.50.0
+	github.com/h0rn3t/river/riverdriver/riversqlite v0.50.0
+	github.com/h0rn3t/river/riverdriver/riversqlserver v0.50.0
+	github.com/h0rn3t/river/rivershared v0.50.0
+	github.com/h0rn3t/river/rivertype v0.50.0
 	github.com/stretchr/testify v1.12.1
 	github.com/tidwall/gjson v1.20.0
 	github.com/tidwall/sjson v1.2.5
@@ -56,8 +56,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
-
-// TODO: Remove this before the first release including the SQL Server driver.
-// It's needed temporarily because there's no riversqlserver tag to target (the
-// one referenced above is fake and does not exist).
-replace github.com/riverqueue/river/riverdriver/riversqlserver => ../riversqlserver

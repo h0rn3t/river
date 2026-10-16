@@ -23,12 +23,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivermigrate"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/util/sliceutil"
-	"github.com/riverqueue/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river/rivermigrate"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/util/sliceutil"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
 )
 
 const schemaDateFormat = "2006_01_02t15_04_05" // everything here needs to be lowercase because Postgres forces schema names to lowercase
@@ -141,7 +141,7 @@ func TestSchema[TTx any](ctx context.Context, tb testutil.TestingTB, driver rive
 	genSchemaBase.Do(func() {
 		var (
 			programCounterAddr, _, _, _ = runtime.Caller(4 + opts.skipExtraFrames)     // skip `TestSchema.func1` (closure) + `sync.(*Once).doSlow` + `sync.(*Once).Do` + `TestSchema` and end up at `TestSchema`'s caller
-			funcName                    = runtime.FuncForPC(programCounterAddr).Name() // like: github.com/riverqueue/river.Test_Client.func1
+			funcName                    = runtime.FuncForPC(programCounterAddr).Name() // like: github.com/h0rn3t/river.Test_Client.func1
 		)
 
 		packageName = packageFromFunc(funcName) // like: `river` (or `jobcompleter`, or `riverpro`)
@@ -426,8 +426,8 @@ func TestSchema[TTx any](ctx context.Context, tb testutil.TestingTB, driver rive
 //
 // Most effectively demonstrated by example:
 //
-//   - `github.com/riverqueue/river.Test_Client.func1` -> `river`
-//   - `github.com/riverqueue/river/internal/jobcompleter.testCompleterWait` -> `jobcompleter`
+//   - `github.com/h0rn3t/river.Test_Client.func1` -> `river`
+//   - `github.com/h0rn3t/river/internal/jobcompleter.testCompleterWait` -> `jobcompleter`
 //
 // This is then used as a root for constructive schema names. It's convenient
 // because it's not too long (schemas have a max length of 64 characters), human

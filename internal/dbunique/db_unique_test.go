@@ -9,9 +9,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/uniquestates"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/uniquestates"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 type JobArgsStaticKind struct {

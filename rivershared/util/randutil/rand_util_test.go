@@ -46,11 +46,11 @@ func TestIntBetween(t *testing.T) {
 // $ go test ./internal/util/randutil -bench Bench
 // goos: darwin
 // goarch: arm64
-// pkg: github.com/riverqueue/river/internal/util/randutil
+// pkg: github.com/h0rn3t/river/internal/util/randutil
 // BenchmarkConcurrentSafeSource-8         80612518                14.68 ns/op
 // BenchmarkCryptoSource-8                  3806643               316.7 ns/op
 // PASS
-// ok      github.com/riverqueue/river/internal/util/randutil 3.552s
+// ok      github.com/h0rn3t/river/internal/util/randutil 3.552s
 //
 
 func BenchmarkRandV2(b *testing.B) {

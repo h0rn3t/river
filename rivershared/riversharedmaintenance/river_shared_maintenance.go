@@ -5,10 +5,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivershared/circuitbreaker"
-	"github.com/riverqueue/river/rivershared/util/randutil"
-	"github.com/riverqueue/river/rivershared/util/serviceutil"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivershared/circuitbreaker"
+	"github.com/h0rn3t/river/rivershared/util/randutil"
+	"github.com/h0rn3t/river/rivershared/util/serviceutil"
 )
 
 // Maintainers will sleep a brief period of time between batches to give the

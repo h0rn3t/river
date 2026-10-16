@@ -24,15 +24,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/puddle/v2"
 
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5/internal/dbsqlc"
-	"github.com/riverqueue/river/rivershared/sqlctemplate"
-	"github.com/riverqueue/river/rivershared/uniquestates"
-	"github.com/riverqueue/river/rivershared/util/dbutil"
-	"github.com/riverqueue/river/rivershared/util/ptrutil"
-	"github.com/riverqueue/river/rivershared/util/randutil"
-	"github.com/riverqueue/river/rivershared/util/sliceutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5/internal/dbsqlc"
+	"github.com/h0rn3t/river/rivershared/sqlctemplate"
+	"github.com/h0rn3t/river/rivershared/uniquestates"
+	"github.com/h0rn3t/river/rivershared/util/dbutil"
+	"github.com/h0rn3t/river/rivershared/util/ptrutil"
+	"github.com/h0rn3t/river/rivershared/util/randutil"
+	"github.com/h0rn3t/river/rivershared/util/sliceutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 //go:embed migration/*/*.sql

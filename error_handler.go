@@ -3,7 +3,7 @@ package river
 import (
 	"context"
 
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // ErrorHandler provides an interface that will be invoked in case of an error

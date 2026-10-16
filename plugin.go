@@ -1,9 +1,9 @@
 package river
 
 import (
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivershared/riverpilot"
-	"github.com/riverqueue/river/rivershared/startstop"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivershared/riverpilot"
+	"github.com/h0rn3t/river/rivershared/startstop"
 )
 
 // A plugin API that drivers may implement to extend a River client. Driver

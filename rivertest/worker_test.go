@@ -12,15 +12,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/internal/execution"
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/testfactory"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/internal/execution"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/testfactory"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 type testArgs struct {
@@ -401,7 +401,7 @@ func TestWorker_Work(t *testing.T) {
 		var panicErr *PanicError
 		require.ErrorAs(t, err, &panicErr)
 		require.Equal(t, errToReturn, panicErr.Cause)
-		require.Contains(t, panicErr.Trace, "github.com/riverqueue/river/rivertest.TestWorker_Work")
+		require.Contains(t, panicErr.Trace, "github.com/h0rn3t/river/rivertest.TestWorker_Work")
 		require.Len(t, res.Job.Errors, 1)
 		require.Contains(t, res.Job.Errors[0].Error, "test panic error")
 	})

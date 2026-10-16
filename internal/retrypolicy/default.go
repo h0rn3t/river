@@ -6,8 +6,8 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/riverqueue/river/rivershared/util/timeutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivershared/util/timeutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // Default is River's clock-aware default retry policy for internal use.

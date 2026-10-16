@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/riverqueue/river/internal/rivercommon"
+	"github.com/h0rn3t/river/internal/rivercommon"
 )
 
 var errClientNotInContext = errors.New("river: client not found in context, can only be used in a Worker")

@@ -10,20 +10,20 @@ import (
 	"golang.org/x/mod/module"
 )
 
-const sampleGoMod = `module github.com/riverqueue/river
+const sampleGoMod = `module github.com/h0rn3t/river
 
 go 1.22
 
 toolchain go1.22.5
 
 require (
-	github.com/riverqueue/river/riverdriver v0.0.0-00010101000000-000000000000
-	github.com/riverqueue/river/riverdriver/riverdatabasesql v0.0.0-00010101000000-000000000000
-	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.0.12
+	github.com/h0rn3t/river/riverdriver v0.0.0-00010101000000-000000000000
+	github.com/h0rn3t/river/riverdriver/riverdatabasesql v0.0.0-00010101000000-000000000000
+	github.com/h0rn3t/river/riverdriver/riverpgxv5 v0.0.12
 )
 
 require (
-	github.com/riverqueue/river/rivershared v0.0.12 // indirect
+	github.com/h0rn3t/river/rivershared v0.0.12 // indirect
 )`
 
 func TestParseAndUpdateGoModFile(t *testing.T) {
@@ -50,7 +50,7 @@ func TestParseAndUpdateGoModFile(t *testing.T) {
 
 		filename, _ := setup(t)
 
-		const packagePrefix = "github.com/riverqueue/river"
+		const packagePrefix = "github.com/h0rn3t/river"
 
 		anyChanges, err := parseAndUpdateGoModFile(filename, packagePrefix, "v0.0.13")
 		require.NoError(t, err)
@@ -74,10 +74,10 @@ func TestParseAndUpdateGoModFile(t *testing.T) {
 		}
 
 		require.Equal(t, []module.Version{
-			{Path: "github.com/riverqueue/river/riverdriver", Version: "v0.0.13"},
-			{Path: "github.com/riverqueue/river/riverdriver/riverdatabasesql", Version: "v0.0.13"},
-			{Path: "github.com/riverqueue/river/riverdriver/riverpgxv5", Version: "v0.0.13"},
-			{Path: "github.com/riverqueue/river/rivershared", Version: "v0.0.13"},
+			{Path: "github.com/h0rn3t/river/riverdriver", Version: "v0.0.13"},
+			{Path: "github.com/h0rn3t/river/riverdriver/riverdatabasesql", Version: "v0.0.13"},
+			{Path: "github.com/h0rn3t/river/riverdriver/riverpgxv5", Version: "v0.0.13"},
+			{Path: "github.com/h0rn3t/river/rivershared", Version: "v0.0.13"},
 		}, versions)
 
 		// Running again is allowed and should be idempotent. This time it'll

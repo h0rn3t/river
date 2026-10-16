@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/riverqueue/river/internal/execution"
-	"github.com/riverqueue/river/internal/jobexecutor"
-	"github.com/riverqueue/river/internal/rivercommon"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/execution"
+	"github.com/h0rn3t/river/internal/jobexecutor"
+	"github.com/h0rn3t/river/internal/rivercommon"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // ResumableSetStepTx immediately persists the current resumable step as

@@ -1,6 +1,6 @@
 package river
 
-import "github.com/riverqueue/river/rivertype"
+import "github.com/h0rn3t/river/rivertype"
 
 var (
 	_ rivertype.Hook       = &PluginDefaults{}

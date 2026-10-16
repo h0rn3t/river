@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/riverqueue/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdbtest"
 )
 
 func TestSharedTx(t *testing.T) {

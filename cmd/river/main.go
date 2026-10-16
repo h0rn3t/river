@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/riverqueue/river/cmd/river/rivercli"
+	"github.com/h0rn3t/river/cmd/river/rivercli"
 )
 
 func main() {

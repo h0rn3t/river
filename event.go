@@ -3,8 +3,8 @@ package river
 import (
 	"time"
 
-	"github.com/riverqueue/river/internal/jobstats"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/jobstats"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // EventKind is a kind of event to subscribe to from a client.

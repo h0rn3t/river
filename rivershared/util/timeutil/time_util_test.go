@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/rivershared/util/timeutil"
+	"github.com/h0rn3t/river/rivershared/util/timeutil"
 )
 
 func TestSecondsAsDuration(t *testing.T) {

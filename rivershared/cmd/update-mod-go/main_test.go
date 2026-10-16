@@ -9,16 +9,16 @@ import (
 	"golang.org/x/mod/modfile"
 )
 
-const sampleGoMod = `module github.com/riverqueue/river
+const sampleGoMod = `module github.com/h0rn3t/river
 
 go 1.22
 
 toolchain go1.23.1
 
 require (
-	github.com/riverqueue/river/riverdriver v0.0.0-00010101000000-000000000000
-	github.com/riverqueue/river/riverdriver/riverdatabasesql v0.0.0-00010101000000-000000000000
-	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.0.12
+	github.com/h0rn3t/river/riverdriver v0.0.0-00010101000000-000000000000
+	github.com/h0rn3t/river/riverdriver/riverdatabasesql v0.0.0-00010101000000-000000000000
+	github.com/h0rn3t/river/riverdriver/riverpgxv5 v0.0.12
 )`
 
 func TestParseAndUpdateGoModFile(t *testing.T) {

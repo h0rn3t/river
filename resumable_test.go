@@ -8,10 +8,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/internal/jobexecutor"
-	"github.com/riverqueue/river/internal/rivercommon"
-	"github.com/riverqueue/river/internal/riverplugin"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/jobexecutor"
+	"github.com/h0rn3t/river/internal/rivercommon"
+	"github.com/h0rn3t/river/internal/riverplugin"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func TestResumableStep(t *testing.T) {

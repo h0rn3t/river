@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 type Benchmarker[TTx any] struct {

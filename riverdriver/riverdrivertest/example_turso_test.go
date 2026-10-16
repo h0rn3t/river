@@ -9,8 +9,8 @@ import (
 
 	_ "turso.tech/database/tursogo"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver/riversqlite"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/riverdriver/riversqlite"
 )
 
 // Example_turso demonstrates use of River's SQLite driver with a local Turso

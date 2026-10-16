@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
 )
 
 func TestTestSignal(t *testing.T) {

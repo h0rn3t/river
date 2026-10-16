@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/baseservice"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/baseservice"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // A Pilot bridges the gap between the River client and the driver, implementing

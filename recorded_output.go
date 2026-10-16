@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/riverqueue/river/internal/jobexecutor"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/jobexecutor"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 const (
@@ -29,7 +29,7 @@ const (
 // a convenient way to store that info.
 //
 // Output is stored in the job's metadata under the `"output"` key
-// ([github.com/riverqueue/river/rivertype.MetadataKeyOutput]).
+// ([github.com/h0rn3t/river/rivertype.MetadataKeyOutput]).
 // This function must be called within an Worker's Work function. It returns an
 // error if called anywhere else. As with any stored value, care should be taken
 // to ensure that the payload size is not too large. Output is limited to 32MB

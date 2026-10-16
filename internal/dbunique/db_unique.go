@@ -11,10 +11,10 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
-	"github.com/riverqueue/river/rivershared/structtag"
-	"github.com/riverqueue/river/rivershared/uniquestates"
-	"github.com/riverqueue/river/rivershared/util/ptrutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivershared/structtag"
+	"github.com/h0rn3t/river/rivershared/uniquestates"
+	"github.com/h0rn3t/river/rivershared/util/ptrutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // Default job states for UniqueOpts.ByState. Stored here to a variable so we

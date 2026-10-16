@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river"
+	"github.com/h0rn3t/river"
 )
 
 func TestUnknownJobKindError_As(t *testing.T) {

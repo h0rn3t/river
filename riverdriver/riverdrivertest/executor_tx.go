@@ -10,13 +10,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/riverdbtest"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/testfactory"
-	"github.com/riverqueue/river/rivershared/util/dbutil"
-	"github.com/riverqueue/river/rivershared/util/hashutil"
-	"github.com/riverqueue/river/rivershared/util/randutil"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/testfactory"
+	"github.com/h0rn3t/river/rivershared/util/dbutil"
+	"github.com/h0rn3t/river/rivershared/util/hashutil"
+	"github.com/h0rn3t/river/rivershared/util/randutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func exerciseExecutorTx[TTx any](ctx context.Context, t *testing.T,

@@ -3,7 +3,7 @@ package startstop
 import (
 	"testing"
 
-	"github.com/riverqueue/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
 )
 
 func TestMain(m *testing.M) {

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/riverqueue/river/internal/workunit"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/workunit"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // Worker is an interface that can perform a job with args of type T. A typical

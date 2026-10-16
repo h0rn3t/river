@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/riverqueue/river/rivershared/util/sliceutil"
+	"github.com/h0rn3t/river/rivershared/util/sliceutil"
 )
 
 // Standard functions suitable for use with slog.HandlerOptions.ReplaceAttr that

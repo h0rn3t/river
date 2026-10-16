@@ -3,7 +3,7 @@ package testsignal
 import (
 	"time"
 
-	"github.com/riverqueue/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
 )
 
 // TestSignalWaiter provides an interface for TestSignal which only exposes

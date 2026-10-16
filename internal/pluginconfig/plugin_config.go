@@ -1,6 +1,6 @@
 package pluginconfig
 
-import "github.com/riverqueue/river/rivertype"
+import "github.com/h0rn3t/river/rivertype"
 
 // CombinedMiddleware combines middleware from the current and legacy
 // configuration fields into one list. Explicit middleware is preserved first,

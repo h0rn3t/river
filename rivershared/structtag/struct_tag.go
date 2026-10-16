@@ -10,7 +10,7 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // ExtractValues extracts the raw JSON values of the specified keys from the

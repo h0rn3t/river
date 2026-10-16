@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/riverqueue/river/internal/dbunique"
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/internal/dbunique"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func TestUniqueOpts_isEmpty(t *testing.T) {

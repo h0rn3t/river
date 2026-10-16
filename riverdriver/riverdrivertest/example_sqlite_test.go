@@ -10,13 +10,13 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riversqlite"
-	"github.com/riverqueue/river/rivermigrate"
-	"github.com/riverqueue/river/rivershared/riversharedtest"
-	"github.com/riverqueue/river/rivershared/util/slogutil"
-	"github.com/riverqueue/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riversqlite"
+	"github.com/h0rn3t/river/rivermigrate"
+	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/util/slogutil"
+	"github.com/h0rn3t/river/rivershared/util/testutil"
 )
 
 type SortArgs struct {

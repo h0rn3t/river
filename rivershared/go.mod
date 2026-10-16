@@ -1,4 +1,4 @@
-module github.com/riverqueue/river/rivershared
+module github.com/h0rn3t/river/rivershared
 
 go 1.26.0
 
@@ -6,10 +6,10 @@ toolchain go1.26.6
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/riverqueue/river v0.49.0
-	github.com/riverqueue/river/riverdriver v0.49.0
-	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.49.0
-	github.com/riverqueue/river/rivertype v0.49.0
+	github.com/h0rn3t/river v0.50.0
+	github.com/h0rn3t/river/riverdriver v0.50.0
+	github.com/h0rn3t/river/riverdriver/riverpgxv5 v0.50.0
+	github.com/h0rn3t/river/rivertype v0.50.0
 	github.com/stretchr/testify v1.12.1
 	github.com/tidwall/gjson v1.20.0
 	go.uber.org/goleak v1.3.0

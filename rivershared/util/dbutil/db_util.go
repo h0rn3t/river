@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivershared/util/timeoututil"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/util/timeoututil"
 )
 
 // SafeIdentifier returns a safely quoted identifier (e.g. a table or schem

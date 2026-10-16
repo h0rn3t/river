@@ -22,10 +22,10 @@ import (
 	"github.com/lmittmann/tint"
 	"github.com/spf13/cobra"
 
-	"github.com/riverqueue/river/cmd/river/riverbench"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/rivermigrate"
-	"github.com/riverqueue/river/rivershared/sqlctemplate"
+	"github.com/h0rn3t/river/cmd/river/riverbench"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivermigrate"
+	"github.com/h0rn3t/river/rivershared/sqlctemplate"
 )
 
 type Config struct {

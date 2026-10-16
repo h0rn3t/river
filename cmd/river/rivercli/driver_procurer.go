@@ -7,12 +7,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/riverqueue/river/cmd/river/riverbench"
-	"github.com/riverqueue/river/riverdriver"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/riverdriver/riversqlite"
-	"github.com/riverqueue/river/riverdriver/riversqlserver"
-	"github.com/riverqueue/river/rivermigrate"
+	"github.com/h0rn3t/river/cmd/river/riverbench"
+	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
+	"github.com/h0rn3t/river/riverdriver/riversqlite"
+	"github.com/h0rn3t/river/riverdriver/riversqlserver"
+	"github.com/h0rn3t/river/rivermigrate"
 )
 
 // DriverProcurer is an interface that provides a way of procuring River modules

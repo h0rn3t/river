@@ -49,9 +49,9 @@ linters:
           files: ["!$test"]
           deny:
             - desc: Don't use `dbadaptertest` package outside of test environments.
-              pkg: github.com/riverqueue/river/internal/dbadaptertest
+              pkg: github.com/h0rn3t/river/internal/dbadaptertest
             - desc: Don't use `riverinternaltest` package outside of test environments.
-              pkg: github.com/riverqueue/river/internal/riverinternaltest
+              pkg: github.com/h0rn3t/river/internal/riverinternaltest
 
         # The next two blocks have the same intent: don't allow testsignal,
         # which is used in non-test code, to have non-stdlib dependencies.
@@ -67,7 +67,7 @@ linters:
             - "!$test"
           allow:
             - $gostd
-            - "github.com/riverqueue/river/rivershared/util/testutil$"
+            - "github.com/h0rn3t/river/rivershared/util/testutil$"
         testutil-no-test-deps:
           files:
             - "**/util/testutil/*.go"
@@ -149,5 +149,5 @@ formatters:
       sections:
         - Standard
         - Default
-        - Prefix(github.com/riverqueue)
+        - Prefix(github.com/h0rn3t)
         - Prefix(riverqueue.com/riverpro)

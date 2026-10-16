@@ -1,7 +1,7 @@
 package river
 
 import (
-	"github.com/riverqueue/river/rivertype"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 // Job represents a single unit of work, holding both the arguments and
