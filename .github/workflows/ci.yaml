@@ -173,16 +173,27 @@ jobs:
         run: make test TEST_DATABASE=sqlite
 
   build_and_test_sqlserver:
-    name: build_and_test_sqlserver (${{ matrix.go-version }}, ${{ matrix.sqlserver-version }}, race)
+    name: build_and_test_sqlserver (${{ matrix.go-version }}, ${{ matrix.sqlserver-version }}${{ matrix.primary && ', race' || '' }})
     env:
       GOTOOLCHAIN: local
       TEST_SQLSERVER_DATABASE_URL: sqlserver://sa:RiverTest1Password@localhost:1433?database=river_test&encrypt=disable
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ["1.27"]
-        # 2022 is the oldest supported version.
-        sqlserver-version: ["2022"]
+        include:
+          # Run the latest Go version against all supported SQL Server
+          # versions, of which 2022 is the oldest. Only the newest Go/SQL
+          # Server combination runs with the race detector.
+          - go-version: "1.27"
+            sqlserver-version: "2025"
+            primary: true
+          - go-version: "1.27"
+            sqlserver-version: "2022"
+
+          # Also run the previous Go version against the latest SQL Server
+          # version.
+          - go-version: "1.26"
+            sqlserver-version: "2025"
       fail-fast: false
     timeout-minutes: 10
 
@@ -217,7 +228,12 @@ jobs:
           -Q "CREATE DATABASE river_test; ALTER DATABASE river_test SET READ_COMMITTED_SNAPSHOT ON;"
 
       - name: Test with race detector
+        if: matrix.primary
         run: make test/race TEST_DATABASE=sqlserver
+
+      - name: Test
+        if: ${{ !matrix.primary }}
+        run: make test TEST_DATABASE=sqlserver
 
   cli:
     strategy:
@@ -421,6 +437,100 @@ jobs:
 
       - run: river migrate-get --up --version 3 --database-url $SQLITE_DATABASE_URL
         shell: bash
+
+  # Runs the CLI's migration loop against SQL Server. It's a separate job from
+  # `cli` because service containers are only available on Linux runners.
+  cli_sqlserver:
+    env:
+      SQLSERVER_DATABASE_URL: sqlserver://sa:RiverTest1Password@localhost:1433?database=river_dev&encrypt=disable
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2025-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: RiverTest1Password
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P RiverTest1Password -Q 'SELECT 1'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+        ports:
+          - 1433:1433
+
+    steps:
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "stable"
+          check-latest: true
+
+      - name: Setup GOBIN
+        run: |
+          echo "GOBIN=$(go env GOPATH)/bin" >> $GITHUB_ENV
+          echo "PATH=$(go env GOPATH)/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up database
+        run: >-
+          docker exec ${{ job.services.sqlserver.id }}
+          /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P RiverTest1Password -b
+          -Q "CREATE DATABASE river_dev; ALTER DATABASE river_dev SET READ_COMMITTED_SNAPSHOT ON;"
+
+      - name: Build and install CLI
+        run: go install .
+        working-directory: ./cmd/river
+
+      - run: river migrate-up --database-url "$SQLSERVER_DATABASE_URL"
+
+      - run: river migrate-list --database-url "$SQLSERVER_DATABASE_URL"
+
+      - run: river validate --database-url "$SQLSERVER_DATABASE_URL"
+
+      - name: river bench
+        run: |
+          ( sleep 10 && killall -SIGTERM river ) &
+          river bench --database-url "$SQLSERVER_DATABASE_URL"
+
+      # Bench again in fixed number of jobs mode.
+      - name: river bench
+        run: |
+          ( sleep 10 && killall -SIGTERM river ) &
+          river bench --database-url "$SQLSERVER_DATABASE_URL" --num-total-jobs 1_234
+
+      - run: river migrate-down --database-url "$SQLSERVER_DATABASE_URL" --max-steps 100
+
+      - name: river validate (expect failure)
+        run: |
+          if river validate --database-url "$SQLSERVER_DATABASE_URL"; then
+            echo "expected non-zero exit code" && exit 1
+          fi
+
+      #
+      # Run the whole migration loop again, this time with a custom schema.
+      #
+
+      - run: echo "CUSTOM_SCHEMA=custom_schema" >> $GITHUB_ENV
+
+      - run: >-
+          docker exec ${{ job.services.sqlserver.id }}
+          /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P RiverTest1Password -b -d river_dev
+          -Q "CREATE SCHEMA $CUSTOM_SCHEMA"
+
+      - run: river migrate-up --database-url "$SQLSERVER_DATABASE_URL" --schema $CUSTOM_SCHEMA
+
+      - run: river validate --database-url "$SQLSERVER_DATABASE_URL" --schema $CUSTOM_SCHEMA
+
+      - run: river migrate-down --database-url "$SQLSERVER_DATABASE_URL" --max-steps 100 --schema $CUSTOM_SCHEMA
+
+      - name: river validate (expect failure)
+        run: |
+          if river validate --database-url "$SQLSERVER_DATABASE_URL" --schema $CUSTOM_SCHEMA; then
+            echo "expected non-zero exit code" && exit 1
+          fi
 
   golangci:
     name: lint
