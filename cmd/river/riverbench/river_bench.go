@@ -485,6 +485,9 @@ func (b *Benchmarker[TTx]) resetJobsTable(ctx context.Context) error {
 		if err := b.driver.GetExecutor().Exec(ctx, "VACUUM"); err != nil {
 			return fmt.Errorf("error vacuuming: %w", err)
 		}
+	case "sqlserver":
+		// SQL Server has no equivalent of `VACUUM`. Deleted rows are cleaned up
+		// in the background.
 	default:
 		return fmt.Errorf("don't know how to vacuum database: %s", b.driver.DatabaseName())
 	}

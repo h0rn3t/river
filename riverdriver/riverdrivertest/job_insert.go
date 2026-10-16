@@ -151,22 +151,7 @@ func exerciseJobInsert[TTx any](ctx context.Context, t *testing.T,
 			// Especially in SQLite where both the database and the drivers
 			// suck, it's really easy to accidentally insert an empty value
 			// instead of a real null so double check that we got real nulls.
-			var (
-				attemptedAtIsNull  bool
-				attemptedByIsNull  bool
-				uniqueKeyIsNull    bool
-				uniqueStatesIsNull bool
-			)
-			require.NoError(t, exec.QueryRow(ctx, "SELECT attempted_at IS NULL, attempted_by IS NULL, unique_key IS NULL, unique_states IS NULL FROM river_job").Scan(
-				&attemptedAtIsNull,
-				&attemptedByIsNull,
-				&uniqueKeyIsNull,
-				&uniqueStatesIsNull,
-			))
-			require.True(t, attemptedAtIsNull)
-			require.True(t, attemptedByIsNull)
-			require.True(t, uniqueKeyIsNull)
-			require.True(t, uniqueStatesIsNull)
+			requireJobColumnsNull(ctx, t, exec, "attempted_at", "attempted_by", "unique_key", "unique_states")
 
 			jobsAfter, err := exec.JobGetByKindMany(ctx, &riverdriver.JobGetByKindManyParams{
 				Kind: []string{"test_kind"},
@@ -300,10 +285,10 @@ func exerciseJobInsert[TTx any](ctx context.Context, t *testing.T,
 				Jobs:   []*riverdriver.JobInsertFastParams{job, job},
 				Schema: schema,
 			})
-			if driver.DatabaseName() == riverdriver.DatabaseNameSQLite {
-				require.ErrorContains(t, err, "unique key appears more than once in batch")
-			} else {
+			if driver.DatabaseName() == riverdriver.DatabaseNamePostgres {
 				require.ErrorContains(t, err, "ON CONFLICT DO UPDATE command cannot affect row a second time")
+			} else {
+				require.ErrorContains(t, err, "unique key appears more than once in batch")
 			}
 			require.Empty(t, results)
 
@@ -480,22 +465,7 @@ func exerciseJobInsert[TTx any](ctx context.Context, t *testing.T,
 			// Especially in SQLite where both the database and the drivers
 			// suck, it's really easy to accidentally insert an empty value
 			// instead of a real null so double check that we got real nulls.
-			var (
-				attemptedAtIsNull  bool
-				attemptedByIsNull  bool
-				uniqueKeyIsNull    bool
-				uniqueStatesIsNull bool
-			)
-			require.NoError(t, exec.QueryRow(ctx, "SELECT attempted_at IS NULL, attempted_by IS NULL, unique_key IS NULL, unique_states IS NULL FROM river_job").Scan(
-				&attemptedAtIsNull,
-				&attemptedByIsNull,
-				&uniqueKeyIsNull,
-				&uniqueStatesIsNull,
-			))
-			require.True(t, attemptedAtIsNull)
-			require.True(t, attemptedByIsNull)
-			require.True(t, uniqueKeyIsNull)
-			require.True(t, uniqueStatesIsNull)
+			requireJobColumnsNull(ctx, t, exec, "attempted_at", "attempted_by", "unique_key", "unique_states")
 
 			jobsAfter, err := exec.JobGetByKindMany(ctx, &riverdriver.JobGetByKindManyParams{
 				Kind: []string{"test_kind"},
@@ -750,21 +720,7 @@ func exerciseJobInsert[TTx any](ctx context.Context, t *testing.T,
 			// Especially in SQLite where both the database and the drivers
 			// suck, it's really easy to accidentally insert an empty value
 			// instead of a real null so double check that we got real nulls.
-			var (
-				attemptedAtIsNull  bool
-				attemptedByIsNull  bool
-				errorsIsNull       bool
-				finalizedAtIsNull  bool
-				uniqueKeyIsNull    bool
-				uniqueStatesIsNull bool
-			)
-			require.NoError(t, exec.QueryRow(ctx, "SELECT attempted_at IS NULL, attempted_by IS NULL, errors IS NULL, finalized_at IS NULL, unique_key IS NULL, unique_states IS NULL FROM river_job").Scan(&attemptedAtIsNull, &attemptedByIsNull, &errorsIsNull, &finalizedAtIsNull, &uniqueKeyIsNull, &uniqueStatesIsNull))
-			require.True(t, attemptedAtIsNull)
-			require.True(t, attemptedByIsNull)
-			require.True(t, errorsIsNull)
-			require.True(t, finalizedAtIsNull)
-			require.True(t, uniqueKeyIsNull)
-			require.True(t, uniqueStatesIsNull)
+			requireJobColumnsNull(ctx, t, exec, "attempted_at", "attempted_by", "errors", "finalized_at", "unique_key", "unique_states")
 		})
 
 		t.Run("AllArgs", func(t *testing.T) {

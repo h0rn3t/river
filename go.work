@@ -5,12 +5,12 @@ toolchain go1.26.6
 use (
 	.
 	./cmd/river
-	./conformance
 	./riverdriver
 	./riverdriver/riverdatabasesql
 	./riverdriver/riverdrivertest
 	./riverdriver/riverpgxv5
 	./riverdriver/riversqlite
+	./riverdriver/riversqlserver
 	./rivershared
 	./rivertype
 )

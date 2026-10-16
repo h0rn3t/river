@@ -14,8 +14,9 @@ func exerciseNotification[TTx any](ctx context.Context, t *testing.T, executorWi
 	t.Helper()
 
 	type testBundle struct {
-		exec    riverdriver.Executor
-		horizon time.Time
+		exec               riverdriver.Executor
+		horizon            time.Time
+		oldestPayloadQuery string
 	}
 
 	setup := func(ctx context.Context, t *testing.T) *testBundle {
@@ -31,7 +32,8 @@ func exerciseNotification[TTx any](ctx context.Context, t *testing.T, executorWi
 				($7, $8, $9),
 				($10, $11, $12)
 		`
-		if driver.DatabaseName() == riverdriver.DatabaseNameSQLite {
+		switch driver.DatabaseName() {
+		case riverdriver.DatabaseNameSQLite:
 			insertQuery = `
 				INSERT INTO river_notification (created_at, payload, topic)
 				VALUES
@@ -39,6 +41,15 @@ func exerciseNotification[TTx any](ctx context.Context, t *testing.T, executorWi
 					(?, ?, ?),
 					(?, ?, ?),
 					(?, ?, ?)
+			`
+		case riverdriver.DatabaseNameSQLServer:
+			insertQuery = `
+				INSERT INTO river_notification (created_at, payload, topic)
+				VALUES
+					(@p1, @p2, @p3),
+					(@p4, @p5, @p6),
+					(@p7, @p8, @p9),
+					(@p10, @p11, @p12)
 			`
 		}
 		createdAtFunc := func(t time.Time) any { return t }
@@ -60,9 +71,15 @@ func exerciseNotification[TTx any](ctx context.Context, t *testing.T, executorWi
 			createdAtFunc(now.Add(-30*time.Minute)), "new_payload", "topic",
 		))
 
+		oldestPayloadQuery := "SELECT payload FROM river_notification ORDER BY created_at LIMIT 1"
+		if driver.DatabaseName() == riverdriver.DatabaseNameSQLServer {
+			oldestPayloadQuery = "SELECT TOP (1) payload FROM river_notification ORDER BY created_at"
+		}
+
 		return &testBundle{
-			exec:    exec,
-			horizon: now.Add(-time.Hour),
+			exec:               exec,
+			horizon:            now.Add(-time.Hour),
+			oldestPayloadQuery: oldestPayloadQuery,
 		}
 	}
 
@@ -98,7 +115,7 @@ func exerciseNotification[TTx any](ctx context.Context, t *testing.T, executorWi
 
 		// Delete by age, even when the oldest notification was inserted later.
 		var oldestRemaining string
-		require.NoError(t, bundle.exec.QueryRow(ctx, "SELECT payload FROM river_notification ORDER BY created_at LIMIT 1").Scan(&oldestRemaining))
+		require.NoError(t, bundle.exec.QueryRow(ctx, bundle.oldestPayloadQuery).Scan(&oldestRemaining))
 		require.Equal(t, "old_payload", oldestRemaining)
 
 		numDeleted, err = bundle.exec.NotificationDeleteBefore(ctx, params)

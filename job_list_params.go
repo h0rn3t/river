@@ -443,10 +443,10 @@ func (p *JobListParams) Kinds(kinds ...string) *JobListParams {
 //
 // https://www.postgresql.org/docs/current/functions-json.html
 //
-// This function isn't supported in SQLite due to SQLite not having an
-// equivalent operator to use, so there's no efficient way to implement it. We
-// recommend the use of Where using a condition with a comparison on the `->>`
-// operator instead.
+// This function isn't supported in SQLite or SQL Server due to them not having
+// an equivalent operator to use, so there's no efficient way to implement it.
+// We recommend the use of Where using a condition with a comparison on the
+// `->>` operator in SQLite or `JSON_VALUE` in SQL Server instead.
 func (p *JobListParams) Metadata(json string) *JobListParams {
 	paramsCopy := p.copy()
 	paramsCopy.metadataCalled = true
@@ -558,6 +558,10 @@ type NamedArgs map[string]any
 // `->>` operators must be used instead:
 //
 //	listParams = listParams.Where("metadata ->> @json_path = @json_val", NamedArgs{"json_path": "$.foo", "json_val": "bar"})
+//
+// And in SQL Server, which expects T-SQL, with `JSON_VALUE`:
+//
+//	listParams = listParams.Where("JSON_VALUE(metadata, @json_path) = @json_val", NamedArgs{"json_path": "$.foo", "json_val": "bar"})
 //
 // Arguments beyond the first are interpreted as named parameters. Each one
 // should be present in the query SQL prefixed with a `@` symbol. Multiple sets

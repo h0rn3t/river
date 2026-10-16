@@ -1,8 +1,15 @@
 /.envrc
-/conformance/testdata/
 /go.work.sum
 /internal/cmd/riverbench/riverbench
 /river
 /riverdriver/riverdrivertest/example_libsql_test.libsql
 /sqlite/
-/rust/**/target/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+
+# Local graft integration for Claude Code — personal setup, not committed.
+/.claude/settings.json
+/.claude/skills/graft/
+/.ignore
+/.mcp.json

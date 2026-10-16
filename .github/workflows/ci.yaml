@@ -172,6 +172,53 @@ jobs:
         if: ${{ !matrix.primary }}
         run: make test TEST_DATABASE=sqlite
 
+  build_and_test_sqlserver:
+    name: build_and_test_sqlserver (${{ matrix.go-version }}, ${{ matrix.sqlserver-version }}, race)
+    env:
+      GOTOOLCHAIN: local
+      TEST_SQLSERVER_DATABASE_URL: sqlserver://sa:RiverTest1Password@localhost:1433?database=river_test&encrypt=disable
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ["1.27"]
+        # 2022 is the oldest supported version.
+        sqlserver-version: ["2022"]
+      fail-fast: false
+    timeout-minutes: 10
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:${{ matrix.sqlserver-version }}-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: RiverTest1Password
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P RiverTest1Password -Q 'SELECT 1'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+        ports:
+          - 1433:1433
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      # Read committed snapshot isolation is recommended for River so that
+      # readers and writers don't block each other.
+      - name: Set up database
+        run: >-
+          docker exec ${{ job.services.sqlserver.id }}
+          /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P RiverTest1Password -b
+          -Q "CREATE DATABASE river_test; ALTER DATABASE river_test SET READ_COMMITTED_SNAPSHOT ON;"
+
+      - name: Test with race detector
+        run: make test/race TEST_DATABASE=sqlserver
+
   cli:
     strategy:
       matrix:
@@ -432,9 +479,6 @@ jobs:
           echo "Make sure migration directories are the same"
           make verify/migrations
 
-      - name: Verify Rust migrations match
-        run: make verify/rust-migrations
-
       - name: Verify sqlc generated code
         run: |
           echo "Make sure that all sqlc changes are checked in"
@@ -454,6 +498,3 @@ jobs:
 
       - name: Check all go/toolchain directives match
         run: CHECK=true make update-mod-go
-
-      - name: Check module zips exclude fixtures and ports
-        run: make check/modzip

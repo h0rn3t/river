@@ -263,6 +263,7 @@ Returns migrations for Postgres by default. Use --database-url to hint a
 non-Postgres alternative:
 
     river migrate-get --version 6 --up --database-url sqlite:// > river_6.up.sql
+    river migrate-get --version 6 --up --database-url sqlserver:// > river_6.up.sql
 	`),
 			RunE: func(cmd *cobra.Command, args []string) error {
 				return RunCommand(ctx, makeCommandBundle(&opts.DatabaseURL, ""), &migrateGet{}, &opts)

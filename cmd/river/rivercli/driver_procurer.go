@@ -11,6 +11,7 @@ import (
 	"github.com/riverqueue/river/riverdriver"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/riverdriver/riversqlite"
+	"github.com/riverqueue/river/riverdriver/riversqlserver"
 	"github.com/riverqueue/river/rivermigrate"
 )
 
@@ -31,6 +32,12 @@ type DriverProcurerPgxV5 interface {
 // DriverProcurerSQLite optionally initializes a custom procurer with a SQLite pool.
 type DriverProcurerSQLite interface {
 	InitSQLite(pool *sql.DB)
+}
+
+// DriverProcurerSQLServer optionally initializes a custom procurer with a SQL
+// Server pool.
+type DriverProcurerSQLServer interface {
+	InitSQLServer(pool *sql.DB)
 }
 
 // BenchmarkerInterface is an interface to a Benchmarker. Its reason for
@@ -81,4 +88,20 @@ func (p *sqliteDriverProcurer) GetMigrator(config *rivermigrate.Config) (Migrato
 
 func (p *sqliteDriverProcurer) QueryRow(ctx context.Context, sql string, args ...any) riverdriver.Row {
 	return riversqlite.New(p.dbPool).GetExecutor().QueryRow(ctx, sql, args...)
+}
+
+type sqlServerDriverProcurer struct {
+	dbPool *sql.DB
+}
+
+func (p *sqlServerDriverProcurer) GetBenchmarker(config *riverbench.Config) BenchmarkerInterface {
+	return riverbench.NewBenchmarker(riversqlserver.New(p.dbPool), config)
+}
+
+func (p *sqlServerDriverProcurer) GetMigrator(config *rivermigrate.Config) (MigratorInterface, error) {
+	return rivermigrate.New(riversqlserver.New(p.dbPool), config)
+}
+
+func (p *sqlServerDriverProcurer) QueryRow(ctx context.Context, sql string, args ...any) riverdriver.Row {
+	return riversqlserver.New(p.dbPool).GetExecutor().QueryRow(ctx, sql, args...)
 }

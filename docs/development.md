@@ -1,8 +1,5 @@
 # River development
 
-The [Ruby](../ruby/), [Rust](../rust/), and [JavaScript](../js/) ports have
-separate development instructions and `make test/<language>` targets.
-
 ## Run tests
 
 Raise the test database:
@@ -20,9 +17,18 @@ To run only the SQLite, libSQL, and Turso driver tests (no Postgres needed):
 
     make test TEST_DATABASE=sqlite
 
-To run the regular suite with the SQLite driver tests excluded:
+To run the regular suite with the SQLite and SQL Server driver tests excluded:
 
     make test TEST_DATABASE=postgres
+
+SQL Server driver tests run against the database in
+`TEST_SQLSERVER_DATABASE_URL`, and are skipped when it's not set. To raise a
+test database in Docker and run only the SQL Server driver tests:
+
+    docker run -d --name river-sqlserver -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD=RiverTest1Password -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+    docker exec river-sqlserver /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P RiverTest1Password -Q "CREATE DATABASE river_test; ALTER DATABASE river_test SET READ_COMMITTED_SNAPSHOT ON;"
+    export TEST_SQLSERVER_DATABASE_URL="sqlserver://sa:RiverTest1Password@localhost:1433?database=river_test&encrypt=disable"
+    make test TEST_DATABASE=sqlserver
 
 `TEST_DATABASE` also applies to `make test/race`. CI separates these suites so
 the Postgres version matrix doesn't repeat the SQLite tests. Each suite still
@@ -76,6 +82,7 @@ flags:
     git tag riverdriver/riverpgxv5/$VERSION -m "release riverdriver/riverpgxv5/$VERSION"
     git tag riverdriver/riverdatabasesql/$VERSION -m "release riverdriver/riverdatabasesql/$VERSION"
     git tag riverdriver/riversqlite/$VERSION -m "release riverdriver/riversqlite/$VERSION"
+    git tag riverdriver/riversqlserver/$VERSION -m "release riverdriver/riversqlserver/$VERSION"
     git tag rivershared/$VERSION -m "release rivershared/$VERSION"
     git tag rivertype/$VERSION -m "release rivertype/$VERSION"
     git tag $VERSION

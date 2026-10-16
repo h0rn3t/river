@@ -7,6 +7,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -439,10 +440,10 @@ func ExerciseClient[TTx any](ctx context.Context, t *testing.T,
 			Schema: bundle.schema,
 		})
 		require.NoError(t, getErr)
-		if bundle.driver.DatabaseName() == riverdriver.DatabaseNameSQLite {
-			require.ErrorContains(t, err, "unique key appears more than once in batch")
-		} else {
+		if bundle.driver.DatabaseName() == riverdriver.DatabaseNamePostgres {
 			require.ErrorContains(t, err, "ON CONFLICT DO UPDATE command cannot affect row a second time")
+		} else {
+			require.ErrorContains(t, err, "unique key appears more than once in batch")
 		}
 		require.Empty(t, results)
 		require.Empty(t, jobs)
@@ -458,10 +459,10 @@ func ExerciseClient[TTx any](ctx context.Context, t *testing.T,
 			{Args: noOpArgs{Name: "same"}, InsertOpts: &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true}}},
 			{Args: noOpArgs{Name: "same"}, InsertOpts: &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true}}},
 		})
-		if bundle.driver.DatabaseName() == riverdriver.DatabaseNameSQLite {
-			require.ErrorContains(t, err, "unique key appears more than once in batch")
-		} else {
+		if bundle.driver.DatabaseName() == riverdriver.DatabaseNamePostgres {
 			require.ErrorContains(t, err, "ON CONFLICT DO UPDATE command cannot affect row a second time")
+		} else {
+			require.ErrorContains(t, err, "unique key appears more than once in batch")
 		}
 		require.Empty(t, results)
 		require.NoError(t, execTx.Rollback(ctx))
@@ -904,8 +905,12 @@ func ExerciseClient[TTx any](ctx context.Context, t *testing.T,
 				completed := testfactory.Job(ctx, t, bundle.exec, &testfactory.JobOpts{
 					FinalizedAt: new(time.Now().UTC().Truncate(time.Second)), Schema: bundle.schema, State: new(rivertype.JobStateCompleted),
 				})
+				whereSQL := tt.sql
+				if bundle.driver.DatabaseName() == riverdriver.DatabaseNameSQLServer {
+					whereSQL = strings.ReplaceAll(whereSQL, "false", "1 = 0") // T-SQL has no boolean literals
+				}
 				params := river.NewJobListParams().States(rivertype.JobStateCompleted).
-					OrderBy(river.JobListOrderByTime, river.SortOrderDesc).Where(tt.sql, tt.args)
+					OrderBy(river.JobListOrderByTime, river.SortOrderDesc).Where(whereSQL, tt.args)
 				result, err := client.JobList(ctx, params)
 				require.NoError(t, err)
 				gotIDs := make([]int64, 0, len(result.Jobs))
@@ -1145,6 +1150,11 @@ func ExerciseClient[TTx any](ctx context.Context, t *testing.T,
 		if bundle.driver.DatabaseName() == riverdriver.DatabaseNameSQLite {
 			t.Logf("Ignoring unsupported JobListResult.Metadata on SQLite")
 			require.EqualError(t, err, "JobListParams.Metadata is not supported on SQLite")
+			return
+		}
+		if bundle.driver.DatabaseName() == riverdriver.DatabaseNameSQLServer {
+			t.Logf("Ignoring unsupported JobListResult.Metadata on SQL Server")
+			require.EqualError(t, err, "JobListParams.Metadata is not supported on SQL Server")
 			return
 		}
 		require.NoError(t, err)
@@ -1543,6 +1553,11 @@ func ExerciseClient[TTx any](ctx context.Context, t *testing.T,
 			require.EqualError(t, err, "JobListParams.Metadata is not supported on SQLite")
 			return
 		}
+		if bundle.driver.DatabaseName() == riverdriver.DatabaseNameSQLServer {
+			t.Logf("Ignoring unsupported JobListTxResult.Metadata on SQL Server")
+			require.EqualError(t, err, "JobListParams.Metadata is not supported on SQL Server")
+			return
+		}
 		require.NoError(t, err)
 		require.Len(t, listRes.Jobs, 1)
 		require.Equal(t, job.ID, listRes.Jobs[0].ID)
@@ -1562,9 +1577,12 @@ func ExerciseClient[TTx any](ctx context.Context, t *testing.T,
 
 		listParams := river.NewJobListParams()
 
-		if bundle.driver.DatabaseName() == riverdriver.DatabaseNameSQLite {
+		switch bundle.driver.DatabaseName() {
+		case riverdriver.DatabaseNameSQLite:
 			listParams = listParams.Where("metadata ->> @json_path = @json_val", river.NamedArgs{"json_path": "$.foo", "json_val": "bar"})
-		} else {
+		case riverdriver.DatabaseNameSQLServer:
+			listParams = listParams.Where("JSON_VALUE(metadata, @json_path) = @json_val", river.NamedArgs{"json_path": "$.foo", "json_val": "bar"})
+		default:
 			// "bar" is quoted in this branch because `jsonb_path_query_first` needs to be compared to a JSON value
 			listParams = listParams.Where("jsonb_path_query_first(metadata, @json_path) = @json_val", river.NamedArgs{"json_path": "$.foo", "json_val": `"bar"`})
 		}

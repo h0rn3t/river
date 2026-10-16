@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/microsoft/go-mssqldb"
 	_ "modernc.org/sqlite"
 )
 
@@ -108,8 +109,22 @@ func RunCommand[TOpts CommandOpts](ctx context.Context, bundle *RunCommandBundle
 					driverProcurer = &sqliteDriverProcurer{dbPool: dbPool}
 				}
 
+			case "sqlserver":
+				dbPool, err := openSQLServerPool(*databaseURL)
+				if err != nil {
+					return false, err
+				}
+				defer dbPool.Close()
+
+				driverProcurerSQLServer, isSQLServerProcurer := driverProcurer.(DriverProcurerSQLServer)
+				if driverProcurer != nil && isSQLServerProcurer {
+					driverProcurerSQLServer.InitSQLServer(dbPool)
+				} else {
+					driverProcurer = &sqlServerDriverProcurer{dbPool: dbPool}
+				}
+
 			default:
-				return false, fmt.Errorf("unsupported database URL (`%s`); try one with a `postgres://`, `postgresql://`, or `sqlite://` scheme/prefix", *bundle.DatabaseURL)
+				return false, fmt.Errorf("unsupported database URL (`%s`); try one with a `postgres://`, `postgresql://`, `sqlite://`, or `sqlserver://` scheme/prefix", *bundle.DatabaseURL)
 			}
 		}
 
@@ -189,6 +204,15 @@ func openSQLitePool(protocol, urlWithoutProtocol string) (*sql.DB, error) {
 
 	// See notes on this in `riversharedtest.DBPoolSQLite`.
 	dbPool.SetMaxOpenConns(1)
+
+	return dbPool, nil
+}
+
+func openSQLServerPool(databaseURL string) (*sql.DB, error) {
+	dbPool, err := sql.Open("sqlserver", databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("error connecting to SQL Server database: %w", err)
+	}
 
 	return dbPool, nil
 }

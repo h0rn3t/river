@@ -210,9 +210,14 @@ func exerciseExecutorTx[TTx any](ctx context.Context, t *testing.T,
 		t.Run("WithArgs", func(t *testing.T) {
 			t.Parallel()
 
-			exec := setup(ctx, t)
+			exec, driver := executorWithTx(ctx, t)
 
-			require.NoError(t, exec.Exec(ctx, "SELECT $1 || $2", "foo", "bar"))
+			query := "SELECT $1 || $2"
+			if driver.DatabaseName() == riverdriver.DatabaseNameSQLServer {
+				query = "SELECT @p1 + @p2"
+			}
+
+			require.NoError(t, exec.Exec(ctx, query, "foo", "bar"))
 		})
 	})
 
@@ -221,8 +226,8 @@ func exerciseExecutorTx[TTx any](ctx context.Context, t *testing.T,
 
 		{
 			driver, _ := driverWithSchema(ctx, t, nil)
-			if driver.DatabaseName() == riverdriver.DatabaseNameSQLite {
-				t.Logf("Skipping PGAdvisoryXactLock test for SQLite")
+			if driver.DatabaseName() != riverdriver.DatabaseNamePostgres {
+				t.Logf("Skipping PGAdvisoryXactLock test for non-Postgres database")
 				return
 			}
 		}

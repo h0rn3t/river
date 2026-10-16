@@ -225,10 +225,11 @@ func exerciseSchemaIntrospection[TTx any](ctx context.Context, t *testing.T,
 		})
 		require.NoError(t, err)
 
-		if driver.DatabaseName() == riverdriver.DatabaseNameSQLite {
-			require.Empty(t, reindexArtifactNames)
-		} else {
+		// Artifacts are only left behind by Postgres' `REINDEX CONCURRENTLY`.
+		if driver.DatabaseName() == riverdriver.DatabaseNamePostgres {
 			require.Equal(t, artifactNames, reindexArtifactNames)
+		} else {
+			require.Empty(t, reindexArtifactNames)
 		}
 	})
 

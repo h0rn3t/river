@@ -110,6 +110,8 @@ func exerciseDriverPool[TTx any](ctx context.Context, t *testing.T,
 			require.True(t, driver.SupportsListenNotify())
 		case riverdriver.DatabaseNameSQLite:
 			require.True(t, driver.SupportsListenNotify())
+		case riverdriver.DatabaseNameSQLServer:
+			require.False(t, driver.SupportsListenNotify())
 		default:
 			require.FailNow(t, "Don't know how to check SupportsListenNotify for: "+driver.DatabaseName())
 		}
@@ -126,7 +128,21 @@ func requireMissingRelation(t *testing.T, err error, schema, missingRelation str
 		// lib/pq: pq: relation %s.%s does not exist
 		// SQLite: no such table: %s.%s
 		// Turso: turso: error: Invalid argument supplied: no such database: %s
-		require.Regexp(t, fmt.Sprintf(`(pq: relation "%s\.%s" does not exist|no such table: %s\.%s|no such database: %s)`, schema, missingRelation, schema, missingRelation, schema), err.Error())
+		// SQL Server: mssql: Invalid object name '%s.%s'.
+		require.Regexp(t, fmt.Sprintf(`(pq: relation "%s\.%s" does not exist|no such table: %s\.%s|no such database: %s|Invalid object name '%s\.%s')`, schema, missingRelation, schema, missingRelation, schema, schema, missingRelation), err.Error())
+	}
+}
+
+// requireJobColumnsNull requires that the given columns are null in every row
+// of river_job. It's written to work on any database: a boolean `IS NULL` in a
+// select list isn't valid in SQL Server, for example.
+func requireJobColumnsNull(ctx context.Context, t *testing.T, exec riverdriver.Executor, columns ...string) {
+	t.Helper()
+
+	for _, column := range columns {
+		var numNotNull int
+		require.NoError(t, exec.QueryRow(ctx, "SELECT count(*) FROM river_job WHERE "+column+" IS NOT NULL").Scan(&numNotNull))
+		require.Zero(t, numNotNull, "expected column %q to be null in every job", column)
 	}
 }
 

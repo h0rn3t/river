@@ -1,9 +1,7 @@
 # River [![Build Status](https://github.com/riverqueue/river/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/riverqueue/river/actions) [![Go Reference](https://pkg.go.dev/badge/github.com/riverqueue/river.svg)](https://pkg.go.dev/github.com/riverqueue/river)
 
-River is a fast, transactional job queue backed by Postgres or SQLite. It
-includes automatic retries, scheduling, unique jobs, and a web UI, with support
-for Go, [JavaScript/TypeScript], [Ruby], and [Rust]. All implementations are
-fully cross-compatible -- enqueue in one language and process in another.
+River is a fast, transactional job queue for Go backed by Postgres or SQLite.
+It includes automatic retries, scheduling, unique jobs, and a web UI.
 
 See [homepage], [docs], and [godoc], as well as the [River UI][riverui] and [its
 live demo][riveruidemo].
@@ -179,14 +177,6 @@ See the [`InsertAndWork` example] for complete code.
 
   - [Work functions] for simplified worker implementation.
 
-## Cross language enqueueing
-
-Jobs inserted by any of River's language implementations can be worked by
-another, so services in different languages can share a queue. See the source
-links above for each implementation's client and worker APIs.
-
-Jobs can also be [inserted from Python](https://riverqueue.com/docs/python).
-
 ## Development
 
 See [developing River].
@@ -199,11 +189,8 @@ See [developing River].
 [Batch job insertion]: https://riverqueue.com/docs/batch-job-insertion
 [Cancelling jobs]: https://riverqueue.com/docs/cancelling-jobs
 [Error and panic handling]: https://riverqueue.com/docs/error-handling
-[JavaScript/TypeScript]: https://github.com/riverqueue/river/tree/master/js
 [Multiple queues]: https://riverqueue.com/docs/multiple-queues
 [Periodic and cron jobs]: https://riverqueue.com/docs/periodic-jobs
-[Ruby]: https://github.com/riverqueue/river/tree/master/ruby
-[Rust]: https://github.com/riverqueue/river/tree/master/rust
 [Scheduled jobs]: https://riverqueue.com/docs/scheduled-jobs
 [Snoozing jobs]: https://riverqueue.com/docs/snoozing-jobs
 [Subscriptions]: https://riverqueue.com/docs/subscriptions

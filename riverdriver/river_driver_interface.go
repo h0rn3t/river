@@ -25,8 +25,9 @@ import (
 const AllQueuesString = "*"
 
 const (
-	DatabaseNamePostgres = "postgres"
-	DatabaseNameSQLite   = "sqlite"
+	DatabaseNamePostgres  = "postgres"
+	DatabaseNameSQLite    = "sqlite"
+	DatabaseNameSQLServer = "sqlserver"
 )
 
 const MigrationLineMain = "main"
@@ -52,8 +53,8 @@ var (
 // API is not stable. DO NOT IMPLEMENT.
 type Driver[TTx any] interface {
 	// ArgPlaceholder is the placeholder character used in query positional
-	// arguments, so "$" for "$1", "$2", "$3", etc. This is a "$" for Postgres
-	// and "?" for SQLite.
+	// arguments, so "$" for "$1", "$2", "$3", etc. This is a "$" for Postgres,
+	// "?" for SQLite, and "@p" for SQL Server.
 	//
 	// API is not stable. DO NOT USE.
 	ArgPlaceholder() string

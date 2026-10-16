@@ -32,6 +32,7 @@ type DriverProcurerStub struct {
 	getMigratorStub    func(config *rivermigrate.Config) (MigratorInterface, error)
 	initPgxV5Stub      func(pool *pgxpool.Pool)
 	initSQLiteStub     func(pool *sql.DB)
+	initSQLServerStub  func(pool *sql.DB)
 	queryRowStub       func(ctx context.Context, sql string, args ...any) riverdriver.Row
 }
 
@@ -65,6 +66,14 @@ func (p *DriverProcurerStub) InitSQLite(pool *sql.DB) {
 	}
 
 	p.initSQLiteStub(pool)
+}
+
+func (p *DriverProcurerStub) InitSQLServer(pool *sql.DB) {
+	if p.initSQLServerStub == nil {
+		panic("InitSQLServer is not stubbed")
+	}
+
+	p.initSQLServerStub(pool)
 }
 
 func (p *DriverProcurerStub) QueryRow(ctx context.Context, sql string, args ...any) riverdriver.Row {
@@ -170,7 +179,7 @@ func TestBaseCommandSetIntegration(t *testing.T) {
 		cmd, _ := setup(t)
 
 		cmd.SetArgs([]string{"migrate-down", "--database-url", "post://"})
-		require.EqualError(t, cmd.Execute(), "unsupported database URL (`post://`); try one with a `postgres://`, `postgresql://`, or `sqlite://` scheme/prefix")
+		require.EqualError(t, cmd.Execute(), "unsupported database URL (`post://`); try one with a `postgres://`, `postgresql://`, `sqlite://`, or `sqlserver://` scheme/prefix")
 	})
 
 	t.Run("MigrateUpWithAppliedTargetVersion", func(t *testing.T) {
@@ -498,7 +507,7 @@ SELECT 'up 1' FROM river_table
 		`), strings.TrimSpace(out.String()))
 }
 
-func TestBaseCommandSetDriverProcurerSQLite(t *testing.T) {
+func TestBaseCommandSetDriverProcurerSQLite(t *testing.T) { //nolint:dupl // same checks for each database/sql procurer
 	t.Parallel()
 
 	getMigratorCalled := false
@@ -542,6 +551,70 @@ func TestBaseCommandSetDriverProcurerSQLite(t *testing.T) {
 -- River main migration 001 [up]
 SELECT 'up 1' FROM river_table
 		`), strings.TrimSpace(out.String()))
+}
+
+func TestBaseCommandSetDriverProcurerSQLServer(t *testing.T) { //nolint:dupl // same checks for each database/sql procurer
+	t.Parallel()
+
+	getMigratorCalled := false
+	initSQLServerCalled := false
+
+	migratorStub := &MigratorStub{}
+	migratorStub.allVersionsStub = func() []rivermigrate.Migration { return []rivermigrate.Migration{testMigration01} }
+	migratorStub.getVersionStub = func(version int) (rivermigrate.Migration, error) {
+		if version == 1 {
+			return testMigration01, nil
+		}
+
+		return rivermigrate.Migration{}, fmt.Errorf("unknown version: %d", version)
+	}
+	migratorStub.existingVersionsStub = func(ctx context.Context) ([]rivermigrate.Migration, error) { return nil, nil }
+
+	cli := NewCLI(&Config{
+		DriverProcurer: &DriverProcurerStub{
+			getMigratorStub: func(config *rivermigrate.Config) (MigratorInterface, error) {
+				getMigratorCalled = true
+				return migratorStub, nil
+			},
+			initSQLServerStub: func(pool *sql.DB) {
+				initSQLServerCalled = true
+			},
+		},
+		Name: "River",
+	})
+
+	var out bytes.Buffer
+	cli.SetOut(&out)
+
+	cmd := cli.BaseCommandSet()
+	cmd.SetArgs([]string{"migrate-get", "--up", "--version", "1", "--database-url", "sqlserver://"})
+	require.NoError(t, cmd.Execute())
+
+	require.True(t, getMigratorCalled)
+	require.True(t, initSQLServerCalled)
+
+	require.Equal(t, strings.TrimSpace(`
+-- River main migration 001 [up]
+SELECT 'up 1' FROM river_table
+		`), strings.TrimSpace(out.String()))
+}
+
+// Uses the real SQL Server driver, which doesn't need to connect to a database
+// to get migrations.
+func TestBaseCommandSetMigrateGetSQLServer(t *testing.T) {
+	t.Parallel()
+
+	cli := NewCLI(&Config{Name: "River"})
+
+	var out bytes.Buffer
+	cli.SetOut(&out)
+
+	cmd := cli.BaseCommandSet()
+	cmd.SetArgs([]string{"migrate-get", "--up", "--version", "2", "--database-url", "sqlserver://"})
+	require.NoError(t, cmd.Execute())
+
+	require.Contains(t, out.String(), "-- River main migration 002 [up]")
+	require.Contains(t, out.String(), "CREATE SEQUENCE river_job_id_seq")
 }
 
 func TestMigrateGet(t *testing.T) {

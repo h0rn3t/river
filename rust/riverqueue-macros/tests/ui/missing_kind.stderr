@@ -1,5 +1,0 @@
-error: JobArgs requires #[river(kind = "...")]
- --> tests/ui/missing_kind.rs:6:8
-  |
-6 | struct InvoiceArgs {
-  |        ^^^^^^^^^^^
