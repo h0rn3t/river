@@ -1017,6 +1017,10 @@ func (e *Executor) MigrationLock(ctx context.Context, params *riverdriver.Migrat
 		return interpretError(err)
 	}
 
+	if err := dbsqlc.New().RiverMigrationLockRefreshCatalog(ctx, e.dbtx); err != nil {
+		return interpretError(err)
+	}
+
 	_, err := e.dbtx.ExecContext(ctx, "RELEASE SAVEPOINT "+savepoint)
 	return interpretError(err)
 }

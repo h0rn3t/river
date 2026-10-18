@@ -948,13 +948,19 @@ func (e *Executor) MigrationLock(ctx context.Context, params *riverdriver.Migrat
 	}
 	defer func() { _ = savepoint.Rollback(context.WithoutCancel(ctx)) }() // no-op after commit
 
-	if err := dbsqlc.New().RiverMigrationLock(ctx, templateReplaceWrapper{dbtx: savepoint, queryExecMode: e.dbtx.queryExecMode, replacer: e.dbtx.replacer}, &dbsqlc.RiverMigrationLockParams{
+	savepointDBTX := templateReplaceWrapper{dbtx: savepoint, queryExecMode: e.dbtx.queryExecMode, replacer: e.dbtx.replacer}
+
+	if err := dbsqlc.New().RiverMigrationLock(ctx, savepointDBTX, &dbsqlc.RiverMigrationLockParams{
 		Line:   params.Line,
 		Schema: pgtype.Text{String: params.Schema, Valid: params.Schema != ""},
 	}); err != nil {
 		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgErrCodeFeatureNotSupported {
 			return nil
 		}
+		return interpretError(err)
+	}
+
+	if err := dbsqlc.New().RiverMigrationLockRefreshCatalog(ctx, savepointDBTX); err != nil {
 		return interpretError(err)
 	}
 

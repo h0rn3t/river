@@ -276,3 +276,18 @@ func (q *Queries) RiverMigrationLock(ctx context.Context, db DBTX, arg *RiverMig
 	_, err := db.ExecContext(ctx, riverMigrationLock, arg.Schema, arg.Line)
 	return err
 }
+
+const riverMigrationLockRefreshCatalog = `-- name: RiverMigrationLockRefreshCatalog :exec
+SELECT 1 FROM pg_catalog.pg_class LIMIT 0
+`
+
+// Runs after RiverMigrationLock so that the transaction sees tables that other
+// migrators created while it waited for the lock. Name lookups like
+// `to_regclass` don't process pending catalog invalidations, so one made before
+// the wait (even in an earlier transaction) could keep reporting a table as
+// missing. Locking a relation for the first time in a transaction processes
+// them, and `pg_class` always exists.
+func (q *Queries) RiverMigrationLockRefreshCatalog(ctx context.Context, db DBTX) error {
+	_, err := db.ExecContext(ctx, riverMigrationLockRefreshCatalog)
+	return err
+}
