@@ -453,7 +453,7 @@ func (s *PeriodicJobEnqueuer) Start(ctx context.Context) error {
 				}
 			}
 
-			if err := s.insertBatch(ctx, insertParamsMany, periodicJobUpsertParams); err != nil {
+			if err := s.insertBatch(ctx, insertParamsMany, periodicJobUpsertParams, nil); err != nil {
 				// Make RunOnStart jobs due now so that the next run of due
 				// jobs retries their inserts instead of losing them.
 				for _, periodicJob := range runOnStartJobs {
@@ -523,15 +523,13 @@ func (s *PeriodicJobEnqueuer) Start(ctx context.Context) error {
 			}
 
 			// Schedules only advance once their inserts are committed so that
-			// a failed insert is retried rather than silently skipped.
-			if err := s.insertBatch(ctx, insertParamsMany, periodicJobUpsertParams); err != nil {
-				return err
-			}
-
-			for i, periodicJob := range dueJobs {
-				periodicJob.nextRunAt = nextRunAts[i]
-			}
-			return nil
+			// a failed insert is retried rather than silently skipped. They
+			// advance before test signals go out so tests can check them.
+			return s.insertBatch(ctx, insertParamsMany, periodicJobUpsertParams, func() {
+				for i, periodicJob := range dueJobs {
+					periodicJob.nextRunAt = nextRunAts[i]
+				}
+			})
 		}
 
 		// After a failed insert, the loop waits out a backoff instead of the
@@ -598,9 +596,16 @@ func (s *PeriodicJobEnqueuer) Start(ctx context.Context) error {
 }
 
 // insertBatch inserts jobs and upserts periodic job next run times in a single
-// transaction, returning an error if anything wasn't committed.
-func (s *PeriodicJobEnqueuer) insertBatch(ctx context.Context, insertParamsMany []*rivertype.JobInsertParams, periodicJobUpsertParams *riverpilot.PeriodicJobUpsertManyParams) error {
+// transaction, returning an error if anything wasn't committed. If non-nil,
+// afterCommitFunc runs once the transaction is committed (or when there was
+// nothing to insert), before test signals are sent.
+func (s *PeriodicJobEnqueuer) insertBatch(ctx context.Context, insertParamsMany []*rivertype.JobInsertParams, periodicJobUpsertParams *riverpilot.PeriodicJobUpsertManyParams, afterCommitFunc func()) error {
+	if afterCommitFunc == nil {
+		afterCommitFunc = func() {}
+	}
+
 	if len(insertParamsMany) < 1 && len(periodicJobUpsertParams.Jobs) < 1 {
+		afterCommitFunc()
 		return nil
 	}
 
@@ -628,6 +633,8 @@ func (s *PeriodicJobEnqueuer) insertBatch(ctx context.Context, insertParamsMany 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("error committing transaction: %w", err)
 	}
+
+	afterCommitFunc()
 
 	if len(insertParamsMany) > 0 {
 		s.TestSignals.InsertedJobs.Signal(struct{}{})

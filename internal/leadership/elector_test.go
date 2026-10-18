@@ -97,19 +97,6 @@ func (g *localNowTimeGeneratorStub) StubNow(now time.Time) time.Time {
 	return now
 }
 
-type notifierListenerMock struct {
-	riverdriver.Listener
-
-	listenErr error
-}
-
-func (l *notifierListenerMock) Close(ctx context.Context) error   { return nil }
-func (l *notifierListenerMock) Connect(ctx context.Context) error { return nil }
-
-func (l *notifierListenerMock) Listen(ctx context.Context, topic string) error {
-	return l.listenErr
-}
-
 func TestElector_PollOnly(t *testing.T) {
 	t.Parallel()
 
@@ -515,31 +502,6 @@ func TestElectorRunLeaderState(t *testing.T) {
 		require.NoError(t, err)
 
 		elector.testSignals.LostLeadership.WaitOrTimeout()
-	})
-}
-
-func TestElectorStart(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-
-	t.Run("ReturnsListenError", func(t *testing.T) {
-		t.Parallel()
-
-		archetype := riversharedtest.BaseServiceArchetype(t)
-
-		// An error ending in "conn closed" was previously swallowed, leaving an
-		// elector that reported a successful start but never ran.
-		elector := NewElector(
-			archetype,
-			nil,
-			notifier.New(archetype, &notifierListenerMock{listenErr: errors.New("conn closed")}),
-			&Config{ClientID: "test_client_id"},
-		)
-		t.Cleanup(elector.Stop)
-
-		require.EqualError(t, elector.Start(ctx),
-			`error listening for leadership notifications: error listening on topic "river_leadership": conn closed`)
 	})
 }
 

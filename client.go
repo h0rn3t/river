@@ -1238,8 +1238,20 @@ func (c *Client[TTx]) Start(ctx context.Context) error {
 		// work context is cancelled with the same cause. Inheriting the start
 		// context's cancellation instead would leave a cause that executors
 		// don't recognize as a client stop, and interrupted jobs would have
-		// an attempt counted against them.
-		workCtx, workCancel := context.WithCancelCause(context.WithoutCancel(ctx))
+		// an attempt counted against them. The start context's deadline is
+		// still carried over (with the same cause) so jobs see it.
+		var (
+			cancelWorkDeadline = func() {}
+			workParentCtx      = context.WithoutCancel(ctx)
+		)
+		if deadline, ok := ctx.Deadline(); ok && c.config.SoftStopTimeout <= 0 {
+			workParentCtx, cancelWorkDeadline = context.WithDeadlineCause(workParentCtx, deadline, rivercommon.ErrStop)
+		}
+		workCtx, cancelWorkCtx := context.WithCancelCause(workParentCtx)
+		workCancel := func(cause error) {
+			cancelWorkCtx(cause)
+			cancelWorkDeadline()
+		}
 		if c.config.SoftStopTimeout <= 0 {
 			stopWorkCancelOnStartCancel = context.AfterFunc(ctx, func() { workCancel(rivercommon.ErrStop) })
 		}

@@ -974,7 +974,7 @@ func TestPeriodicJobEnqueuer(t *testing.T) {
 				UpdatedAt: now,
 			}},
 			Schema: bundle.schema,
-		})
+		}, nil)
 		require.EqualError(t, err, "error inserting 1 periodic job(s): insert failed before database write")
 
 		require.False(t, periodicJobUpsertManyMockCalled)

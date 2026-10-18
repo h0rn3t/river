@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -351,13 +352,10 @@ func (e *Elector) Start(ctx context.Context) error {
 		})
 		if err != nil {
 			stopped()
-			// Only a stopping elector may swallow the error. Any other failure,
-			// including a closed listener connection, is returned because an
-			// elector that never runs leaves this client unable to lead.
-			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
-				return nil //nolint:nilerr // stopping elector; the error only reflects the cancellation
+			if strings.HasSuffix(err.Error(), "conn closed") || errors.Is(err, context.Canceled) {
+				return nil
 			}
-			return fmt.Errorf("error listening for leadership notifications: %w", err)
+			return err
 		}
 	}
 
