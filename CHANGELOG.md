@@ -1,216 +1,216 @@
-# Changelog
+# Журнал змін
 
-All notable changes to this project will be documented in this file.
+Усі помітні зміни в цьому проєкті документуються в цьому файлі.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Формат базується на [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+а проєкт дотримується [семантичного версіонування](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Невипущене]
 
 ## [0.51.0] - 2026-10-18
 
-### Changed
+### Змінено
 
-- River now requires Go 1.27 or newer. Every module declares `go 1.27.0` with toolchain `go1.27.2`, and Go 1.26 is no longer supported.
+- River тепер потребує Go 1.27 або новішого. Кожен модуль оголошує `go 1.27.0` з toolchain `go1.27.2`, а Go 1.26 більше не підтримується.
 
-### Fixed
+### Виправлено
 
-- The SQL Server driver only takes the key range locks that guard unique job inserts (`MERGE ... WITH (HOLDLOCK)`) when a job being inserted has a unique key, so inserts of non-unique jobs in long running transactions no longer hold them until commit.
-- The SQLite and SQL Server drivers store job args, metadata, tags, and errors as given instead of escaping `<`, `>`, and `&` in them as `<`, `>`, and `&`.
-- The SQL Server driver's job scheduler reads the jobs to schedule once per run. SQL Server evaluates a CTE again for every reference to it, so a concurrent change could previously have it check unique conflicts against a different set of jobs than the one it scheduled.
-- Fixed a nil pointer panic in the SQL Server driver when cancelling, deleting, or retrying a job through an executor unwrapped from a nil driver.
-- Fixed the SQL Server driver treating `[` in `JobKindList` and `QueueNameList` matches as the start of a `LIKE` character class rather than matching it literally like Postgres does.
-- Fixed the SQL Server driver's `JobUpdateFull` failing on an attempt count out of `smallint` range instead of clamping it like the Postgres drivers do.
-- Fixed the SQL Server driver returning a connection to the pool while `go-mssqldb` could still be reading the response to a rollback that `database/sql` started because the transaction's context was cancelled, so that the next query on the connection raced it. Transactions the driver begins are no longer rolled back on cancellation of their context, but by their `Rollback`.
-- Fixed the SQL Server driver occasionally not fetching or scheduling jobs stored with the database's current time in the same clock tick, which it compared to the current time at 100 nanosecond precision rather than the microsecond precision times are stored at.
+- Драйвер SQL Server бере блокування діапазонів ключів, які захищають додавання унікальних задач (`MERGE ... WITH (HOLDLOCK)`), лише коли задача, що додається, має унікальний ключ, тож додавання неунікальних задач у довгих транзакціях більше не утримує їх до коміту.
+- Драйвери SQLite і SQL Server зберігають аргументи, метадані, теги й помилки задач як є, а не екранують у них `<`, `>` і `&` як `<`, `>` і `&`.
+- Планувальник задач у драйвері SQL Server читає задачі для планування один раз за запуск. SQL Server обчислює CTE заново для кожного посилання на нього, тож раніше через паралельну зміну він міг перевіряти конфлікти унікальності на іншому наборі задач, ніж той, який запланував.
+- Виправлено паніку через nil-вказівник у драйвері SQL Server під час скасування, видалення чи повторного запуску задачі через виконавець, отриманий з nil-драйвера через `UnwrapExecutor`.
+- Виправлено: драйвер SQL Server сприймав `[` у збігах `JobKindList` і `QueueNameList` як початок класу символів `LIKE`, а не шукав його буквально, як це робить Postgres.
+- Виправлено: `JobUpdateFull` у драйвері SQL Server завершувався помилкою, коли кількість спроб виходила за межі `smallint`, замість обмежити її, як це роблять драйвери Postgres.
+- Виправлено: драйвер SQL Server повертав з'єднання в пул, поки `go-mssqldb` ще міг читати відповідь на відкат, який `database/sql` почав через скасування контексту транзакції, тож наступний запит на цьому з'єднанні конкурував із ним. Транзакції, які починає драйвер, більше не відкочуються через скасування їхнього контексту, а лише викликом `Rollback`.
+- Виправлено: драйвер SQL Server зрідка не вибирав і не планував задачі, збережені з поточним часом бази даних у тому самому такті годинника, бо порівнював їх із поточним часом з точністю до 100 наносекунд, а не до мікросекунд, з якою час зберігається.
 
 ## [0.50.0] - 2026-10-16
 
-### Added
+### Додано
 
-- Added `riverdriver/riversqlserver`, a driver for Microsoft SQL Server 2022 or newer and Azure SQL Database, used with a `database/sql` pool from `github.com/microsoft/go-mssqldb`. SQL Server has no equivalent of `LISTEN`/`NOTIFY`, so clients run in poll only mode, and `JobListParams.Metadata` isn't supported. The `river` CLI accepts `sqlserver://` database URLs.
+- Додано `riverdriver/riversqlserver` — драйвер для Microsoft SQL Server 2022 або новішого та Azure SQL Database, який працює з пулом `database/sql` з `github.com/microsoft/go-mssqldb`. У SQL Server немає аналога `LISTEN`/`NOTIFY`, тому клієнти працюють лише в режимі опитування, а `JobListParams.Metadata` не підтримується. CLI `river` приймає URL баз даних `sqlserver://`.
 
-### Changed
+### Змінено
 
-- The module path is now `github.com/h0rn3t/river`, and every submodule moves with it (for example `github.com/h0rn3t/river/riverdriver/riverpgxv5`). Replace `github.com/riverqueue/river` with `github.com/h0rn3t/river` in import paths and `go.mod` requirements.
-- Job deletion through `Client.JobDelete`, `Client.JobDeleteMany`, their `Tx` variants, and the job cleaner now goes through optional pilot hooks, so a pilot can take part in deletes as it already can in cancels and retries. Behavior with the standard pilot is unchanged. [PR #1500](https://github.com/riverqueue/river/pull/1500).
+- Шлях модуля тепер `github.com/h0rn3t/river`, і всі підмодулі переїхали разом із ним (наприклад, `github.com/h0rn3t/river/riverdriver/riverpgxv5`). Замініть `github.com/riverqueue/river` на `github.com/h0rn3t/river` у шляхах імпорту та залежностях у `go.mod`.
+- Видалення задач через `Client.JobDelete`, `Client.JobDeleteMany`, їхні варіанти `Tx` і прибиральник задач тепер проходить через необов'язкові хуки пілота, тож пілот може брати участь у видаленні так само, як уже бере у скасуванні й повторних спробах. Зі стандартним пілотом поведінка не змінилася. [PR #1500](https://github.com/riverqueue/river/pull/1500).
 
-### Fixed
+### Виправлено
 
-- Fixed `AddWorkerSafely` leaving a worker's primary kind and earlier aliases registered when a later kind alias conflicts with an existing registration. Failed registrations now leave the worker registry unchanged. [PR #1440](https://github.com/riverqueue/river/pull/1440).
-- Fixed the notifier retrying without backoff and flooding logs when the context passed to `Client.Start` reaches its deadline. [PR #1495](https://github.com/riverqueue/river/pull/1495).
+- Виправлено: `AddWorkerSafely` залишав зареєстрованими основний kind воркера та попередні псевдоніми, коли наступний псевдонім kind конфліктував з наявною реєстрацією. Невдала реєстрація тепер залишає реєстр воркерів незмінним. [PR #1440](https://github.com/riverqueue/river/pull/1440).
+- Виправлено: сповіщувач повторював спроби без затримки між ними й засмічував логи, коли контекст, переданий у `Client.Start`, досягав свого дедлайну. [PR #1495](https://github.com/riverqueue/river/pull/1495).
 
 ## [0.49.0] - 2026-10-05
 
-⚠️ If using River Pro, make sure to upgrade it to at least River Pro v0.32.0 to get a compatible package.
+⚠️ Якщо ви використовуєте River Pro, оновіть його щонайменше до River Pro v0.32.0, щоб отримати сумісний пакет.
 
-### Changed
+### Змінено
 
-- Internal transaction helpers now reuse existing transactions instead of creating unnecessary savepoints. Callers of transactional APIs must roll back their transaction on error; applications that need partial rollback can create an explicit savepoint around the River call. Set `RIVER_USE_LEGACY_SUBTRANSACTIONS=1` (or `true`) before starting the application to restore savepoints in these helpers, including those used by River Pro. This is a temporary compatibility fallback planned for removal in a future release. [PR #1420](https://github.com/riverqueue/river/pull/1420).
+- Внутрішні допоміжні функції для транзакцій тепер повторно використовують наявні транзакції замість створення зайвих точок збереження. Код, що викликає транзакційні API, мусить відкочувати свою транзакцію в разі помилки; застосунки, яким потрібен частковий відкат, можуть створити явну точку збереження навколо виклику River. Щоб повернути точки збереження в цих допоміжних функціях, зокрема в тих, які використовує River Pro, задайте `RIVER_USE_LEGACY_SUBTRANSACTIONS=1` (або `true`) перед запуском застосунку. Це тимчасовий запасний механізм для сумісності, який планується вилучити в одному з майбутніх випусків. [PR #1420](https://github.com/riverqueue/river/pull/1420).
 
-### Fixed
+### Виправлено
 
-- Fixed `rivertest.Worker` to honor a configured `Config.JobStuckThreshold` for stuck job detection. Previously, it always used an internal 5 second threshold, so the `Job appears to be stuck` log line was emitted at a different time than it would be under a real client. [PR #1418](https://github.com/riverqueue/river/pull/1418).
-- Fixed SQLite job cleanup stalling when excluded queues fill the oldest batch, and added support for included queue filters so per-queue retention works on SQLite. [PR #1417](https://github.com/riverqueue/river/pull/1417).
-- Fixed a unique insert skipped as a duplicate of a job of a different kind (possible with `UniqueOpts.ExcludeKind`) changing the existing job's kind to its own. [PR #1421](https://github.com/riverqueue/river/pull/1421).
+- Виправлено `rivertest.Worker`: тепер він враховує налаштований `Config.JobStuckThreshold` під час виявлення завислих задач. Раніше він завжди використовував внутрішній поріг у 5 секунд, тож рядок журналу `Job appears to be stuck` виводився не в той момент, що зі справжнім клієнтом. [PR #1418](https://github.com/riverqueue/river/pull/1418).
+- Виправлено застрягання очищення задач у SQLite, коли найстаріший пакет заповнено задачами з виключених черг, і додано підтримку фільтрів включених черг, щоб на SQLite працював термін зберігання для окремих черг. [PR #1417](https://github.com/riverqueue/river/pull/1417).
+- Виправлено помилку, через яку унікальне додавання, пропущене як дублікат задачі з іншим kind (що можливо з `UniqueOpts.ExcludeKind`), змінювало kind наявної задачі на свій. [PR #1421](https://github.com/riverqueue/river/pull/1421).
 
 ## [0.48.0] - 2026-09-30
 
-⚠️ This release contains a new database migration, version 8, but it only affects SQLite:
+⚠️ Цей випуск містить нову міграцію бази даних версії 8, але вона стосується лише SQLite:
 
-- If you're on Postgres, you can ignore it with no adverse effect.
-- If you're on SQLite, it rebuilds `river_job` to add an `AUTOINCREMENT` keyword to the primary key, preventing a possible edge case where generated job IDs could be reused after deletion. It's not necessary to run the migration for River to work, but it's a good idea to get it in when convenient. [PR #1390](https://github.com/riverqueue/river/pull/1390).
+- Якщо ви використовуєте Postgres, її можна проігнорувати без жодних негативних наслідків.
+- Якщо ви використовуєте SQLite, вона перебудовує `river_job`, щоб додати до первинного ключа ключове слово `AUTOINCREMENT`, і так запобігає можливому граничному випадку, коли згенеровані ID задач могли повторно використовуватися після видалення. Для роботи River запускати міграцію не обов'язково, але варто застосувати її, коли буде зручно. [PR #1390](https://github.com/riverqueue/river/pull/1390).
 
-⚠️ If using River Pro, make sure to upgrade it to at least River Pro v0.31.0 to get a compatible package.
+⚠️ Якщо ви використовуєте River Pro, оновіть його щонайменше до River Pro v0.31.0, щоб отримати сумісний пакет.
 
-### Added
+### Додано
 
-- Added support for YugabyteDB. When `LISTEN/NOTIFY` is unavailable or disabled, clients automatically poll for running job cancellations and queue pause, resume, and metadata changes, and skip unsupported notification broadcasts. This works with the default `PollOnly: false`. Native notifications require YugabyteDB 2025.2.3 or later with `ysql_yb_enable_listen_notify=true` on both Masters and TServers. [PR #1347](https://github.com/riverqueue/river/pull/1347).
-- Added `Config.LeaderElectionDisabled` to let a client work jobs without participating in leader election or running maintenance services. Other eligible clients in the same database and schema continue handling scheduling, retries, periodic enqueueing, rescue, and cleanup. [PR #1382](https://github.com/riverqueue/river/pull/1382).
-- Added `Config.FetchOnlyKnownKinds` to restrict job fetching to registered worker kinds, including aliases. Clients with different workers can share a queue while leaving unknown jobs available without consuming attempts. Disabled by default; leader election and stuck-job rescue behavior are unchanged. [PR #1396](https://github.com/riverqueue/river/pull/1396).
+- Додано підтримку YugabyteDB. Коли `LISTEN/NOTIFY` недоступний або вимкнений, клієнти автоматично використовують опитування, щоб відстежувати скасування задач, що виконуються, а також призупинення, відновлення та зміни метаданих черг, і пропускають непідтримувані розсилки сповіщень. Це працює з типовим `PollOnly: false`. Нативні сповіщення потребують YugabyteDB 2025.2.3 або новішої з `ysql_yb_enable_listen_notify=true` як на Masters, так і на TServers. [PR #1347](https://github.com/riverqueue/river/pull/1347).
+- Додано `Config.LeaderElectionDisabled`, що дає змогу клієнту виконувати задачі без участі у виборах лідера та без запуску сервісів обслуговування. Інші придатні клієнти в тій самій базі даних і схемі й надалі займаються плануванням, повторними спробами, періодичним додаванням задач до черги, порятунком і очищенням. [PR #1382](https://github.com/riverqueue/river/pull/1382).
+- Додано `Config.FetchOnlyKnownKinds`, щоб обмежити вибірку задач kind зареєстрованих воркерів, включно з псевдонімами. Клієнти з різними воркерами можуть спільно використовувати чергу, залишаючи невідомі задачі доступними без витрачання спроб. За замовчуванням вимкнено; поведінка виборів лідера та порятунку завислих задач не змінюється. [PR #1396](https://github.com/riverqueue/river/pull/1396).
 
-### Changed
+### Змінено
 
-- `UniqueOpts.ByPeriod` now derives a job's period from its effective scheduled time (`InsertOpts.ScheduledAt` when set, otherwise the insertion time), so scheduled jobs are deduplicated against other jobs scheduled in the same period rather than against jobs inserted in the same period. Periods are also now always measured in UTC, so processes and `ScheduledAt` values in different time zones produce the same unique key for the same period. Unique keys for scheduled `ByPeriod` jobs, and for any `ByPeriod` job inserted from a process whose local time zone isn't UTC, differ from those produced by previous versions. During a rolling upgrade, old and new clients may therefore each insert one job for such a period; jobs that aren't scheduled and are inserted from UTC processes are unaffected. [PR #1377](https://github.com/riverqueue/river/pull/1377).
-- `UniqueOpts{ExcludeKind: true}` alone is now rejected at insert time instead of being silently ignored. `UniqueOpts.isEmpty()` now considers `ExcludeKind`, in line with the equivalent handling in internal/dbunique. **Warning:** This new rejection can be considered a minor breaking change. [PR #1404](https://github.com/riverqueue/river/pull/1404).
+- `UniqueOpts.ByPeriod` тепер визначає період задачі за її фактичним запланованим часом (`InsertOpts.ScheduledAt`, якщо задано, інакше — час додавання), тож заплановані задачі дедуплікуються з іншими задачами, запланованими на той самий період, а не з задачами, доданими в тому самому періоді. Крім того, періоди тепер завжди обчислюються в UTC, тож процеси та значення `ScheduledAt` у різних часових поясах дають однаковий унікальний ключ для того самого періоду. Унікальні ключі для запланованих задач із `ByPeriod`, а також для будь-якої задачі з `ByPeriod`, доданої з процесу, локальний часовий пояс якого не UTC, відрізняються від тих, що створювали попередні версії. Тому під час поетапного оновлення старі й нові клієнти можуть додати кожен по одній задачі для такого періоду; незапланованих задач, доданих із процесів в UTC, це не стосується. [PR #1377](https://github.com/riverqueue/river/pull/1377).
+- `UniqueOpts{ExcludeKind: true}` без інших опцій тепер відхиляється під час додавання, а не ігнорується мовчки. `UniqueOpts.isEmpty()` тепер враховує `ExcludeKind`, як і аналогічна обробка в internal/dbunique. **Попередження:** це нове відхилення можна вважати незначною несумісною зміною. [PR #1404](https://github.com/riverqueue/river/pull/1404).
 
-### Fixed
+### Виправлено
 
-- Fixed cancelled transaction starts leaving Turso connections unusable, which could prevent maintenance from recovering after a startup failure. [PR #1347](https://github.com/riverqueue/river/pull/1347).
-- Fixed maintenance startup failures leaving a client renewing leadership with maintenance stopped in poll-only mode. After exhausting startup retries, clients now request local resignation without depending on database notifications. [PR #1347](https://github.com/riverqueue/river/pull/1347).
-- Fixed `JobRescuer` overwriting jobs that complete, leave the running state, or are claimed again by another worker after being fetched for rescue, preserving their state, errors, metadata, and timestamps across Postgres and SQLite drivers. Fixes [#1302](https://github.com/riverqueue/river/issues/1302). [PR #1373](https://github.com/riverqueue/river/pull/1373).
-- Fixed SQLite job list pagination skipping or repeating jobs by formatting cursor timestamps consistently with stored timestamps. [PR #1374](https://github.com/riverqueue/river/pull/1374).
-- Improved Postgres job listing performance when filtering by one finalized state (`completed`, `cancelled`, or `discarded`) and sorting by finalized time, including in River UI. [PR #1374](https://github.com/riverqueue/river/pull/1374).
-- Fixed `rivermigrate` leaving `river_migration` rows behind after migrating a non-main migration line down through its version 1, which caused a later up migration of that line to skip version 1. With `MigrateTx`, rows for every removed version were left behind. [PR #1378](https://github.com/riverqueue/river/pull/1378).
-- Fixed `river bench` inserting every benchmark job with a `num` arg of `0` instead of numbering jobs sequentially. [PR #1379](https://github.com/riverqueue/river/pull/1379).
-- Attempt errors that are valid JSON but don't have the shape River writes (for example an `at` timestamp in another format, an `attempt` stored as a string, or an `error` or `trace` that isn't a string) are now decoded on a best effort basis when reading jobs from the database. Timestamps outside RFC 3339 are left zero; stored values are unchanged. Previously a single such element made its job unreadable, and if that happened while fetching jobs, every job locked in the same fetch was left `running` indefinitely. [PR #1380](https://github.com/riverqueue/river/pull/1380).
-- A fetched job whose row can't be decoded (for example a SQLite job whose `tags` were changed to something other than an array of strings) no longer leaves every job locked in the same fetch stuck `running`. The other jobs are worked normally, while the undecodable job's attempt fails with an error describing the decode failure, and it's retried or discarded like any other failed job. Its original values are preserved, with non-array `errors` values wrapped to append the failure or rescue error. Neither the rescuer nor the SQLite scheduler fails on such a job, so its retry doesn't stop other jobs from being rescued or scheduled. [PR #1380](https://github.com/riverqueue/river/pull/1380).
-- Fixed SQLite notification listeners delivering notifications from before a subscription or from an unsubscribe gap. Notification reads now fetch subscribed topics in bounded batches, and cleanup deletes expired notifications in batches of 10,000 rows (reduced to 1,000 after repeated timeouts), with pauses between batches to reduce write lock contention. [PR #1381](https://github.com/riverqueue/river/pull/1381).
-- Fixed the job completer panicking when a job it was finalizing had its state changed concurrently, like being moved to `pending` out of band, or being rescued while the completer's update waited on the row lock (in which case Postgres returns the job's pre-update `running` row). Such jobs are now skipped without emitting a completion event. [PR #1383](https://github.com/riverqueue/river/pull/1383).
-- Fixed `JobList` pagination skipping or repeating jobs when ordering by `JobListOrderByTime` with multiple states. Cursors now use the same time field as the list's ordering (the one for the first listed state) rather than the one for each job's own state. Jobs where that field is null, like `finalized_at` for unfinalized jobs, are paginated correctly and consistently sort last in ascending order and first in descending order on all drivers. Ordering by `JobListOrderByTime` with an empty `States()` filter now uses `scheduled_at` instead of returning an error. [PR #1384](https://github.com/riverqueue/river/pull/1384).
-- A SQLite job whose `args`, `attempted_by`, `errors`, `metadata`, or `tags` were changed to text that isn't valid JSON no longer makes every fetch from its queue fail with a "malformed JSON" error. The job's attempt fails like that of any other job that can't be decoded, and completing, rescuing, or scheduling it no longer fails either. Invalid values are left in place, except that an invalid `errors` value is kept as a string in a new array so that attempt errors can still be appended. [PR #1386](https://github.com/riverqueue/river/pull/1386).
-- Fixed `UniqueOpts.ByArgs` skipping distinct jobs or failing inserts when JSON keys contain path syntax (like `user.id`), are empty, or come from unnamed tags like `json:",omitempty"`. Unaffected unique keys remain unchanged; affected jobs may be inserted again after upgrading or by old and new clients during a rolling upgrade. [PR #1387](https://github.com/riverqueue/river/pull/1387).
-- Fixed `JobListCursor.UnmarshalText` rejecting valid cursors whose URL-safe base64 encoding contains `-` or `_`, so cursors produced by `MarshalText` always round-trip. [PR #1388](https://github.com/riverqueue/river/pull/1388).
-- Fixed SQLite drivers deleting jobs in a finalized state whose retention period was set to -1 (keep forever), like `Config.DiscardedJobRetentionPeriod: -1`, whenever another state's retention period was finite. [PR #1389](https://github.com/riverqueue/river/pull/1389).
-- Fixed SQLite reusing the ID of a deleted job when that job held the largest ID, which could cause an ID observed earlier to refer to an unrelated job later. [PR #1390](https://github.com/riverqueue/river/pull/1390).
-- Fixed the `Job appears to be stuck` log line reporting the client-level `JobTimeout` instead of the worker-level timeout when a worker overrides `Timeout`. [PR #1394](https://github.com/riverqueue/river/pull/1394).
-- Fixed job cancellations received during a fetch being lost before the fetched jobs started. Matching jobs now receive cancellation before work begins. [PR #1397](https://github.com/riverqueue/river/pull/1397).
-- Fixed SQLite `JobCancel` and `JobCancelTx` notifying running workers through the shared control outbox, so their contexts are cancelled when the transaction commits. [PR #1398](https://github.com/riverqueue/river/pull/1398).
-- Fixed SQLite `InsertMany` and `InsertManyTx` reporting multiple inserted jobs when a batch contains the same active unique key more than once. Such batches now fail atomically, matching Postgres. [PR #1399](https://github.com/riverqueue/river/pull/1399).
-- Fixed error and panic handlers receiving the wrong job row when a single execution reports errors for multiple jobs. [PR #1401](https://github.com/riverqueue/river/pull/1401).
-- Fixed the default retry policy scheduling a job's retry about 292 years in the past on amd64 once the job had errored 310 or more times, which made it run again immediately. The capped retry delay is now exactly the maximum duration on every architecture. [PR #1402](https://github.com/riverqueue/river/pull/1402).
-- Fixed up migrations targeting an already-applied version to do nothing instead of applying later pending migrations. [PR #1403](https://github.com/riverqueue/river/pull/1403).
-- Fixed remote cancellation leaving peer jobs running until rescue when a worker returns per-job results for several jobs. The cancelled job now settles as cancelled, and peers settle according to their own results. [PR #1408](https://github.com/riverqueue/river/pull/1408).
-- Fixed `JobCancel` returning a stale pre-commit row to the loser of a concurrent-cancel race. The query's fallback read now takes a row lock (`FOR UPDATE`), matching the documented "returns the up-to-date `JobRow`" contract. The analogous shape in `JobRetry` is known and will follow separately. [PR #1409](https://github.com/riverqueue/river/pull/1409).
-- Fixed `JobRetry` returning a stale pre-commit row to the loser of a concurrent retry race. The CTE's fallback read now takes a row lock (`FOR UPDATE`), the same shape as the `JobCancel` fix. [PR #1410](https://github.com/riverqueue/river/pull/1410).
+- Виправлено ситуацію, коли скасований початок транзакції залишав з'єднання Turso непридатними до використання, що могло завадити обслуговуванню відновитися після збою під час запуску. [PR #1347](https://github.com/riverqueue/river/pull/1347).
+- Виправлено ситуацію, коли в режимі лише опитування збої запуску обслуговування призводили до того, що клієнт продовжував поновлювати лідерство із зупиненим обслуговуванням. Після вичерпання повторних спроб запуску клієнти тепер запитують локальну відмову від лідерства, не покладаючись на сповіщення бази даних. [PR #1347](https://github.com/riverqueue/river/pull/1347).
+- Виправлено `JobRescuer`, який перезаписував задачі, що завершилися, вийшли зі стану виконання або були знову захоплені іншим воркером після того, як їх вибрали для порятунку; тепер їхні стан, помилки, метадані та часові позначки зберігаються в драйверах Postgres і SQLite. Виправляє [#1302](https://github.com/riverqueue/river/issues/1302). [PR #1373](https://github.com/riverqueue/river/pull/1373).
+- Виправлено пагінацію списку задач у SQLite, яка пропускала або повторювала задачі: часові позначки курсора тепер форматуються узгоджено зі збереженими часовими позначками. [PR #1374](https://github.com/riverqueue/river/pull/1374).
+- Покращено продуктивність отримання списку задач у Postgres під час фільтрації за одним фінальним станом (`completed`, `cancelled` або `discarded`) і сортування за часом фіналізації, зокрема в River UI. [PR #1374](https://github.com/riverqueue/river/pull/1374).
+- Виправлено `rivermigrate`, який залишав рядки `river_migration` після міграції неосновної лінії міграцій униз до її версії 1 включно, через що подальша міграція цієї лінії вгору пропускала версію 1. З `MigrateTx` залишалися рядки для кожної вилученої версії. [PR #1378](https://github.com/riverqueue/river/pull/1378).
+- Виправлено `river bench`, який додавав кожну задачу бенчмарку з аргументом `num`, що дорівнював `0`, замість послідовної нумерації задач. [PR #1379](https://github.com/riverqueue/river/pull/1379).
+- Помилки спроб, які є валідним JSON, але мають не ту форму, яку записує River (наприклад, часова позначка `at` в іншому форматі, `attempt`, збережений як рядок, або `error` чи `trace`, що не є рядком), тепер декодуються, наскільки це можливо, під час читання задач із бази даних. Часові позначки не у форматі RFC 3339 залишаються нульовими; збережені значення не змінюються. Раніше один такий елемент робив задачу нечитабельною, і якщо це траплялося під час вибірки задач, кожна задача, заблокована в тій самій вибірці, безстроково залишалася в стані `running`. [PR #1380](https://github.com/riverqueue/river/pull/1380).
+- Вибрана задача, рядок якої неможливо декодувати (наприклад, задача SQLite, у якої `tags` змінено на щось інше, ніж масив рядків), більше не призводить до того, що кожна задача, заблокована в тій самій вибірці, зависає в стані `running`. Інші задачі виконуються як звичайно, а спроба задачі, яку неможливо декодувати, завершується помилкою з описом збою декодування, і задачу повторюють або відкидають, як будь-яку іншу задачу, що завершилася помилкою. Її початкові значення зберігаються, а значення `errors`, які не є масивом, обгортаються, щоб до них можна було додати помилку збою або порятунку. Ні сервіс порятунку, ні планувальник SQLite не дають збою на такій задачі, тож її повторна спроба не заважає рятувати чи планувати інші задачі. [PR #1380](https://github.com/riverqueue/river/pull/1380).
+- Виправлено слухачів сповіщень SQLite, які доставляли сповіщення, надіслані до оформлення підписки або в проміжку після відписки. Під час читання сповіщень підписані теми тепер вибираються обмеженими пакетами, а очищення видаляє прострочені сповіщення пакетами по 10 000 рядків (зменшуючи їх до 1 000 після повторних тайм-аутів) з паузами між пакетами, щоб зменшити конкуренцію за блокування запису. [PR #1381](https://github.com/riverqueue/river/pull/1381).
+- Виправлено паніку в компоненті завершення задач, коли стан задачі, яку він фіналізував, змінювався конкурентно, наприклад, коли її переводили в `pending` поза звичайним процесом або рятували, поки оновлення цього компонента очікувало на блокування рядка (у такому разі Postgres повертає рядок задачі до оновлення зі станом `running`). Такі задачі тепер пропускаються без генерування події завершення. [PR #1383](https://github.com/riverqueue/river/pull/1383).
+- Виправлено пагінацію `JobList`, яка пропускала або повторювала задачі під час упорядкування за `JobListOrderByTime` з кількома станами. Курсори тепер використовують те саме поле часу, що й упорядкування списку (поле для першого вказаного стану), а не поле для власного стану кожної задачі. Задачі, у яких це поле дорівнює null, як-от `finalized_at` для нефіналізованих задач, коректно розбиваються на сторінки й на всіх драйверах однаково сортуються останніми за зростанням і першими за спаданням. Упорядкування за `JobListOrderByTime` з порожнім фільтром `States()` тепер використовує `scheduled_at` замість повернення помилки. [PR #1384](https://github.com/riverqueue/river/pull/1384).
+- Задача SQLite, у якої `args`, `attempted_by`, `errors`, `metadata` або `tags` змінено на текст, що не є валідним JSON, більше не призводить до того, що кожна вибірка з її черги завершується помилкою "malformed JSON". Спроба такої задачі завершується помилкою, як і в будь-якої іншої задачі, яку неможливо декодувати, а її завершення, порятунок чи планування теж більше не дають збою. Невалідні значення залишаються на місці, за винятком невалідного значення `errors`, яке зберігається як рядок у новому масиві, щоб до нього й надалі можна було додавати помилки спроб. [PR #1386](https://github.com/riverqueue/river/pull/1386).
+- Виправлено `UniqueOpts.ByArgs`, який пропускав різні задачі або спричиняв збої додавання, коли ключі JSON містять синтаксис шляху (як-от `user.id`), порожні або походять із безіменних тегів на кшталт `json:",omitempty"`. Унікальні ключі, яких це не стосується, не змінюються; задачі, яких це стосується, можуть бути додані повторно після оновлення або старими й новими клієнтами під час поетапного оновлення. [PR #1387](https://github.com/riverqueue/river/pull/1387).
+- Виправлено `JobListCursor.UnmarshalText`, який відхиляв валідні курсори, чиє URL-безпечне кодування base64 містить `-` або `_`, тож курсори, створені `MarshalText`, завжди успішно проходять кодування й зворотне декодування. [PR #1388](https://github.com/riverqueue/river/pull/1388).
+- Виправлено видалення драйверами SQLite задач у фінальному стані, для якого період зберігання задано як -1 (зберігати назавжди), як-от `Config.DiscardedJobRetentionPeriod: -1`, щоразу, коли період зберігання іншого стану був скінченним. [PR #1389](https://github.com/riverqueue/river/pull/1389).
+- Виправлено повторне використання в SQLite ID видаленої задачі, якщо ця задача мала найбільший ID, через що ID, побачений раніше, згодом міг належати сторонній задачі. [PR #1390](https://github.com/riverqueue/river/pull/1390).
+- Виправлено рядок журналу `Job appears to be stuck`, який повідомляв `JobTimeout` рівня клієнта замість тайм-ауту рівня воркера, коли воркер перевизначає `Timeout`. [PR #1394](https://github.com/riverqueue/river/pull/1394).
+- Виправлено втрату скасувань задач, отриманих під час вибірки, до того як вибрані задачі почали виконуватися. Відповідні задачі тепер отримують скасування до початку роботи. [PR #1397](https://github.com/riverqueue/river/pull/1397).
+- Виправлено `JobCancel` і `JobCancelTx` у SQLite: тепер вони сповіщають запущених воркерів через спільний outbox керувальних повідомлень, тож контексти цих воркерів скасовуються під час коміту транзакції. [PR #1398](https://github.com/riverqueue/river/pull/1398).
+- Виправлено `InsertMany` та `InsertManyTx` у SQLite, які повідомляли про кілька доданих задач, коли пакет містить той самий активний унікальний ключ більше одного разу. Такі пакети тепер атомарно завершуються помилкою, як і в Postgres. [PR #1399](https://github.com/riverqueue/river/pull/1399).
+- Виправлено обробники помилок і панік, які отримували не той рядок задачі, коли одне виконання повідомляє про помилки для кількох задач. [PR #1401](https://github.com/riverqueue/river/pull/1401).
+- Виправлено типову політику повторних спроб, яка на amd64 планувала повторну спробу задачі приблизно на 292 роки в минуле, щойно задача завершувалася помилкою 310 або більше разів, через що вона одразу запускалася знову. Обмежена затримка повторної спроби тепер на всіх архітектурах дорівнює рівно максимальній тривалості. [PR #1402](https://github.com/riverqueue/river/pull/1402).
+- Виправлено міграції вгору, ціллю яких є вже застосована версія: тепер вони нічого не роблять, а не застосовують пізніші міграції, що очікують. [PR #1403](https://github.com/riverqueue/river/pull/1403).
+- Виправлено віддалене скасування, яке залишало сусідні задачі виконуватися аж до порятунку, коли воркер повертає окремі результати для кількох задач. Скасована задача тепер завершується як скасована, а сусідні — відповідно до власних результатів. [PR #1408](https://github.com/riverqueue/river/pull/1408).
+- Виправлено `JobCancel`, який повертав застарілий рядок у стані до коміту учаснику, що програв гонку конкурентних скасувань. Резервне читання в запиті тепер бере блокування рядка (`FOR UPDATE`), що відповідає задокументованому контракту «повертає актуальний `JobRow`». Про аналогічну проблему в `JobRetry` відомо, її буде виправлено окремо. [PR #1409](https://github.com/riverqueue/river/pull/1409).
+- Виправлено `JobRetry`, який повертав застарілий рядок у стані до коміту учаснику, що програв гонку конкурентних повторних спроб. Резервне читання в CTE тепер бере блокування рядка (`FOR UPDATE`) — так само, як у виправленні `JobCancel`. [PR #1410](https://github.com/riverqueue/river/pull/1410).
 
 ## [0.47.0] - 2026-09-01
 
-### Added
+### Додано
 
-- Added hook for River's CLI command framework that can be used to inject custom SQLite initialization. Used by River Pro. [PR #1369](https://github.com/riverqueue/river/pull/1369).
+- Додано хук для фреймворку команд CLI River, який можна використовувати для впровадження власної ініціалізації SQLite. Використовується River Pro. [PR #1369](https://github.com/riverqueue/river/pull/1369).
 
 ## [0.46.0] - 2026-08-29
 
-### Added
+### Додано
 
-- Added `riverdatabasesql.NewWithPgxListener` for using a dedicated Pgx pool to receive Postgres notifications while continuing to execute jobs and transactions through `database/sql`. [PR #1366](https://github.com/riverqueue/river/pull/1366).
+- Додано `riverdatabasesql.NewWithPgxListener`, щоб використовувати окремий пул Pgx для отримання сповіщень Postgres і водночас і далі виконувати задачі та транзакції через `database/sql`. [PR #1366](https://github.com/riverqueue/river/pull/1366).
 
 ## [0.45.0] - 2026-08-25
 
-### Changed
+### Змінено
 
-- Upgrade supported Go versions to 1.26 and 1.27. [PR #1356](https://github.com/riverqueue/river/pull/1356).
+- Підтримувані версії Go оновлено до 1.26 і 1.27. [PR #1356](https://github.com/riverqueue/river/pull/1356).
 
-### Fixed
+### Виправлено
 
-- Fixed periodic jobs advancing their durable next run time when job insertion fails. [PR #1359](https://github.com/riverqueue/river/pull/1359).
-- Improved SQLite queue count performance on large job tables by limiting counts to available and running jobs so the existing state and queue index can be used. [PR #1360](https://github.com/riverqueue/river/pull/1360).
+- Виправлено ситуацію, коли періодичні задачі зсували свій постійно збережений час наступного запуску, хоча додавання задачі завершилося помилкою. [PR #1359](https://github.com/riverqueue/river/pull/1359).
+- Покращено продуктивність підрахунку задач у чергах у SQLite на великих таблицях задач: підрахунок тепер обмежено доступними задачами та задачами, що виконуються, тож можна використовувати наявний індекс за станом і чергою. [PR #1360](https://github.com/riverqueue/river/pull/1360).
 
 ## [0.44.1] - 2026-08-21
 
-### Fixed
+### Виправлено
 
-- SQLite job completion, rescue, and full-update paths now serialize timestamps using River's standard millisecond format instead of relying on database driver serialization, preventing inconsistent timestamp representations from being persisted. [PR #1353](https://github.com/riverqueue/river/pull/1353)
-- SQLite drivers now return a non-nil empty `JobRow.Errors` slice for jobs without errors, matching the behavior of Postgres drivers and ensuring the field serializes to `[]` instead of `null`. [PR #1354](https://github.com/riverqueue/river/pull/1354).
+- Шляхи завершення, порятунку та повного оновлення задач у SQLite тепер серіалізують часові позначки в стандартному мілісекундному форматі River замість того, щоб покладатися на серіалізацію драйвера бази даних, що запобігає збереженню неузгоджених представлень часових позначок. [PR #1353](https://github.com/riverqueue/river/pull/1353)
+- Драйвери SQLite тепер повертають для задач без помилок порожній зріз `JobRow.Errors`, що не є nil, як і драйвери Postgres, тож поле серіалізується в `[]`, а не в `null`. [PR #1354](https://github.com/riverqueue/river/pull/1354).
 
 ## [0.44.0] - 2026-08-18
 
-### Added
+### Додано
 
-- Added `EventKindJobInterrupted`, emitted when a running job is interrupted because its client is shutting down, the job was cancelled, and has been made immediately available to be worked again. [PR #1290](https://github.com/riverqueue/river/pull/1290).
+- Додано `EventKindJobInterrupted`, що генерується, коли задачу, яка виконується, перервано, бо її клієнт зупиняється, задачу було скасовано, і її одразу зроблено доступною для повторного виконання. [PR #1290](https://github.com/riverqueue/river/pull/1290).
 
-### Changed
+### Змінено
 
-- Jobs that didn't finish in time organically while a client was stopping and had to have their context cancelled no longer have this cancellation counted as an error. `attempt` is reset to the number it was before the job started working, `errors` is left unchanged, and `state` is made `available` so jobs are eligible to be retried immediately. [PR #1290](https://github.com/riverqueue/river/pull/1290)
+- Для задач, які не встигли завершитися самостійно під час зупинки клієнта і чий контекст довелося скасувати, це скасування більше не зараховується як помилка. `attempt` скидається до значення, яке було до початку виконання задачі, `errors` залишається без змін, а `state` стає `available`, тож задачі одразу придатні для повторної спроби. [PR #1290](https://github.com/riverqueue/river/pull/1290)
 
-### Fixed
+### Виправлено
 
-- Write timestamps in SQLite to always include three digits after the second like `.000`. Previously, they may have been truncated down to just `.0` in the case of trailing zeroes. [PR #1349](https://github.com/riverqueue/river/pull/1349)
-- Job completion events now reflect the job's persisted outcome when it differs from the transition requested by the worker. For example, a job completed with `JobCompleteTx` before its worker returns an error emits `job_completed`, and a remotely cancelled job whose worker errors or snoozes emits `job_cancelled`. Applications subscribed only to `job_failed` or `job_snoozed` should note that these events may instead be delivered to `job_completed` or `job_cancelled` subscribers. [PR #1350](https://github.com/riverqueue/river/pull/1350)
+- Часові позначки в SQLite тепер завжди записуються з трьома цифрами після секунд, як-от `.000`. Раніше за наявності кінцевих нулів їх могло бути скорочено лише до `.0`. [PR #1349](https://github.com/riverqueue/river/pull/1349)
+- Події завершення задач тепер відображають збережений результат задачі, якщо він відрізняється від переходу, запитаного воркером. Наприклад, задача, завершена через `JobCompleteTx` до того, як її воркер поверне помилку, генерує `job_completed`, а віддалено скасована задача, чий воркер повертає помилку або відкладає її, генерує `job_cancelled`. Застосункам, підписаним лише на `job_failed` або `job_snoozed`, варто врахувати, що ці події натомість можуть доставлятися підписникам `job_completed` або `job_cancelled`. [PR #1350](https://github.com/riverqueue/river/pull/1350)
 
 ## [0.43.0] - 2026-08-05
 
-### Added
+### Додано
 
-- Added `JobListParams.TagsAll` and `JobListParams.TagsAny` for filtering jobs that match every or any exact tag, respectively. [PR #1339](https://github.com/riverqueue/river/pull/1339).
+- Додано `JobListParams.TagsAll` і `JobListParams.TagsAny` для фільтрації задач, які відповідають відповідно всім або будь-якому з точно заданих тегів. [PR #1339](https://github.com/riverqueue/river/pull/1339).
 
-### Fixed
+### Виправлено
 
-- `testsignal` no longer imports `riversharedtest`, so testify, go-spew, goleak, and yaml are no longer linked into production binaries that use River. `WaitTimeout` moved to `rivershared/util/testutil`, with `riversharedtest.WaitTimeout` kept as a wrapper around it. [PR #1342](https://github.com/riverqueue/river/pull/1342).
+- `testsignal` більше не імпортує `riversharedtest`, тож testify, go-spew, goleak і yaml більше не лінкуються в продакшн-бінарники, що використовують River. `WaitTimeout` переміщено до `rivershared/util/testutil`, а `riversharedtest.WaitTimeout` залишено як обгортку над ним. [PR #1342](https://github.com/riverqueue/river/pull/1342).
 
 ## [0.42.0] - 2026-07-31
 
-### Added
+### Додано
 
-- Added `JobArgsWithPlugins` for installing plugins that apply only to a specific job type. [PR #1337](https://github.com/riverqueue/river/pull/1337).
+- Додано `JobArgsWithPlugins` для встановлення плагінів, які застосовуються лише до певного типу задач. [PR #1337](https://github.com/riverqueue/river/pull/1337).
 
 ## [0.41.1] - 2026-07-29
 
-### Fixed
+### Виправлено
 
-- Fixed `JobRescuer` incorrectly rescuing jobs whose worker timeout of zero inherits a client-level `Config.JobTimeout` of `-1` (no timeout). [PR #1331](https://github.com/riverqueue/river/pull/1331).
+- Виправлено `JobRescuer`, який помилково рятував задачі, чий нульовий тайм-аут воркера успадковує `Config.JobTimeout` рівня клієнта зі значенням `-1` (без тайм-ауту). [PR #1331](https://github.com/riverqueue/river/pull/1331).
 
 ## [0.41.0] - 2026-07-23
 
-### Added
+### Додано
 
-- Added `rivertype.HookMetricEmit` for receiving metrics emitted by River. Initial metrics report the duration of successful job fetches with `JobGetAvailableDurationMetric` and the number of jobs fetched with `JobGetAvailableCountMetric`. [PR #1285](https://github.com/riverqueue/river/pull/1285).
-- The `riversqlite` driver is now tested against Turso, an in-process SQLite-compatible database written in Rust. [PR #1311](https://github.com/riverqueue/river/pull/1311).
+- Додано `rivertype.HookMetricEmit` для отримання метрик, які генерує River. Перші метрики повідомляють тривалість успішних вибірок задач через `JobGetAvailableDurationMetric` і кількість вибраних задач через `JobGetAvailableCountMetric`. [PR #1285](https://github.com/riverqueue/river/pull/1285).
+- Драйвер `riversqlite` тепер тестується з Turso — SQLite-сумісною базою даних, написаною на Rust, яка працює всередині процесу. [PR #1311](https://github.com/riverqueue/river/pull/1311).
 
-### Changed
+### Змінено
 
-- Added `Config.Plugins` for extensions that should be installed as both hooks and middleware. `Config.Hooks` and `Config.Middleware` remain available for hook-only and middleware-only registration. [PR #1284](https://github.com/riverqueue/river/pull/1284).
-- Reduce producer keep alive interval from 1 minute to 30 seconds. [PR #1319](https://github.com/riverqueue/river/pull/1319).
-- Add context helpers that name timeouts for easy attribution on where they happened. [PR #1329](https://github.com/riverqueue/river/pull/1329).
+- Додано `Config.Plugins` для розширень, які слід встановлювати і як хуки, і як middleware. `Config.Hooks` і `Config.Middleware` залишаються доступними для реєстрації лише хуків і лише middleware відповідно. [PR #1284](https://github.com/riverqueue/river/pull/1284).
+- Інтервал keep-alive продюсера зменшено з 1 хвилини до 30 секунд. [PR #1319](https://github.com/riverqueue/river/pull/1319).
+- Додано допоміжні функції для контексту, які дають тайм-аутам імена, щоб легко визначати, де вони сталися. [PR #1329](https://github.com/riverqueue/river/pull/1329).
 
-### Fixed
+### Виправлено
 
-- Guard against empty job slice returned by `JobSetStateIfRunningMany` when a job has been deleted mid-run. [PR #1308](https://github.com/riverqueue/river/pull/1308).
-- Fixed `JobRescuer` pagination so a full batch of running jobs with disabled or longer worker-specific timeouts can't prevent later stuck jobs from being rescued. [PR #1318](https://github.com/riverqueue/river/pull/1318).
-- If a job fails to unmarshal from JSON during job rescue or job execution, back off using the retry schedule and eventually discard it, similar to any other error that might occur. [PR #1324](https://github.com/riverqueue/river/pull/1324).
-- Fixed `JobListOrderByFinalizedAt` validation so finalized states are accepted while non-finalized states are rejected. [PR #1327](https://github.com/riverqueue/river/issues/1327).
+- Додано захист від порожнього зрізу задач, який повертає `JobSetStateIfRunningMany`, коли задачу видалено під час виконання. [PR #1308](https://github.com/riverqueue/river/pull/1308).
+- Виправлено пагінацію `JobRescuer`, щоб повний пакет задач, що виконуються, з вимкненими або довшими тайм-аутами окремих воркерів не міг завадити порятунку пізніших завислих задач. [PR #1318](https://github.com/riverqueue/river/pull/1318).
+- Якщо задачу не вдається десеріалізувати з JSON під час порятунку або виконання, застосовується затримка за розкладом повторних спроб, а зрештою задача відкидається, як і в разі будь-якої іншої помилки, що може статися. [PR #1324](https://github.com/riverqueue/river/pull/1324).
+- Виправлено валідацію `JobListOrderByFinalizedAt`, щоб фінальні стани приймалися, а нефінальні — відхилялися. [PR #1327](https://github.com/riverqueue/river/issues/1327).
 
 ## [0.40.0] - 2026-07-02
 
-⚠️ Version 0.40.0 contains a new database migration, version 7, that rolls up some database cleanups and a few SQLite features:
+⚠️ Версія 0.40.0 містить нову міграцію бази даних версії 7, яка об'єднує кілька прибирань у базі даних і декілька можливостей SQLite:
 
-- Drop tables `river_client` and `river_client_queue`. These were added prospectively, but in the end were never used for anything. [PR #1115](https://github.com/riverqueue/river/pull/1115).
-- Add a default value of 25 to `river_job.max_attempts`. Go code was previously injecting a max value, so this has no functional effect on existing behavior. [PR #1115](https://github.com/riverqueue/river/pull/1115).
-- Add a default value of `CURRENT_TIMESTAMP` to `river_queue.updated_at`. Go code was previously injecting the current time, so this has no functional effect on existing behavior. [PR #1115](https://github.com/riverqueue/river/pull/1115).
-- SQLite only: Convert `json` columns to `jsonb`. [PR #1224](https://github.com/riverqueue/river/pull/1224).
-- SQLite only: Add pseudo listen/notify mechanism in a new `river_notification` table. [PR #1275](https://github.com/riverqueue/river/pull/1275).
+- Видалення таблиць `river_client` і `river_client_queue`. Їх додали на перспективу, але врешті-решт вони так ні для чого й не знадобилися. [PR #1115](https://github.com/riverqueue/river/pull/1115).
+- Додавання типового значення 25 для `river_job.max_attempts`. Раніше максимальне значення підставляв код Go, тож це ніяк не впливає на наявну поведінку. [PR #1115](https://github.com/riverqueue/river/pull/1115).
+- Додавання типового значення `CURRENT_TIMESTAMP` для `river_queue.updated_at`. Раніше поточний час підставляв код Go, тож це ніяк не впливає на наявну поведінку. [PR #1115](https://github.com/riverqueue/river/pull/1115).
+- Лише SQLite: перетворення стовпців `json` на `jsonb`. [PR #1224](https://github.com/riverqueue/river/pull/1224).
+- Лише SQLite: додавання механізму псевдо-listen/notify у новій таблиці `river_notification`. [PR #1275](https://github.com/riverqueue/river/pull/1275).
 
-For SQLite, running River apps must be stopped briefly while the migration is run and their code upgrade to 0.40.0 so they start reading and inserting new values in `jsonb` instead of `json`.
+Для SQLite запущені застосунки River потрібно ненадовго зупинити на час виконання міграції та оновлення їхнього коду до 0.40.0, щоб вони почали читати й вставляти нові значення у `jsonb` замість `json`.
 
-See [documentation on running River migrations](https://riverqueue.com/docs/migrations). If migrating with the CLI, make sure to update it to its latest version:
+Див. [документацію щодо запуску міграцій River](https://riverqueue.com/docs/migrations). Якщо ви виконуєте міграцію за допомогою CLI, обов'язково оновіть його до найновішої версії:
 
 ```shell
 go install github.com/riverqueue/river/cmd/river@latest
 river migrate-up --database-url "$DATABASE_URL"
 ```
 
-If not using River's internal migration system, the raw SQL can alternatively be dumped with (or change `--database-url` to a Postgres URI for Postgres versions):
+Якщо ви не використовуєте внутрішню систему міграцій River, сирий SQL можна натомість вивантажити так (або змініть `--database-url` на Postgres URI для версій під Postgres):
 
 ```shell
 go install github.com/riverqueue/river/cmd/river@latest
@@ -218,540 +218,540 @@ river migrate-get --database-url sqlite:// --version 7 --up > river7.up.sql
 river migrate-get --database-url sqlite:// --version 7 --down > river7.down.sql
 ```
 
-### Added
+### Додано
 
-- SQLite picks up a new `river_notification` table that allows River to provide listen/notify-like functionality despite these functions not being supported outside of Postgres. [PR #1275](https://github.com/riverqueue/river/pull/1275).
-- Added `JobStuckHandler`, giving clients a hook to handle "stuck" jobs (i.e. ones which are passed timeout and haven't responded to context cancellation) and potentially open a new worker slot if so desired. [PR #1291](https://github.com/riverqueue/river/pull/1291).
+- SQLite отримує нову таблицю `river_notification`, яка дає River змогу надавати функціональність, подібну до listen/notify, попри те що ці функції не підтримуються поза Postgres. [PR #1275](https://github.com/riverqueue/river/pull/1275).
+- Додано `JobStuckHandler`, що дає клієнтам хук для обробки «завислих» задач (тобто тих, у яких минув тайм-аут і які не відреагували на скасування контексту) і, за бажання, відкриття нового слота воркера. [PR #1291](https://github.com/riverqueue/river/pull/1291).
 
-### Changed
+### Змінено
 
-- Convert SQLite JSON columns to JSONB (including migration). [PR #1224](https://github.com/riverqueue/river/pull/1224).
-- Change SQLite driver operations over to use bulk inserts where possible now that sqlc has better support for `json_each`. [PR #1276](https://github.com/riverqueue/river/pull/1276)
-- Detect duplicate step names across `river.ResumableStep` and return a validation error. [PR #1281](https://github.com/riverqueue/river/pull/1281)
-- Earlier backpressure from `BatchCompleter` when it's throughput is saturated with fewer warnings to console. [PR #1292](https://github.com/riverqueue/river/pull/1292)
-- Series of minor optimizations in `BatchCompleter` raising throughput ~20% when it's the bottleneck in job processing (e.g. in benchmarks). [PR #1293](https://github.com/riverqueue/river/pull/1293)
+- Стовпці JSON у SQLite перетворено на JSONB (разом із міграцією). [PR #1224](https://github.com/riverqueue/river/pull/1224).
+- Операції драйвера SQLite переведено на масові вставки там, де це можливо, тепер, коли sqlc краще підтримує `json_each`. [PR #1276](https://github.com/riverqueue/river/pull/1276)
+- Повторювані назви кроків у `river.ResumableStep` тепер виявляються, і повертається помилка валідації. [PR #1281](https://github.com/riverqueue/river/pull/1281)
+- `BatchCompleter` тепер раніше застосовує зворотний тиск, коли його пропускну здатність вичерпано, і виводить у консоль менше попереджень. [PR #1292](https://github.com/riverqueue/river/pull/1292)
+- Низка дрібних оптимізацій у `BatchCompleter`, що підвищують пропускну здатність приблизно на 20%, коли він є вузьким місцем в обробці задач (наприклад, у бенчмарках). [PR #1293](https://github.com/riverqueue/river/pull/1293)
 
-### Fixed
+### Виправлено
 
-- Fix `JobCancel` having no effect on running jobs when using a poll-only driver (e.g. `riverdatabasesql`). The `controlActionCancel` event was silently dropped in `fetchAndRunLoop`'s `queueControlCh` handler instead of being forwarded to `maybeCancelJob`. Note: this fix only works within a single process; cross-process cancels in poll-only setups must wait for the next poll cycle. [PR #1245](https://github.com/riverqueue/river/pull/1245).
-- Ensure jobs that return a custom timeout of -1 (no timeout) are never rescued. [PR #1288](https://github.com/riverqueue/river/pull/1288).
-- Detect numbered Postgres `REINDEX INDEX CONCURRENTLY` artifacts like `_ccnew1` and `_ccold2` so the reindexer does not keep accumulating failed artifact indexes. Fixes [#1296](https://github.com/riverqueue/river/issues/1296). [PR #1297](https://github.com/riverqueue/river/pull/1297).
+- Виправлено `JobCancel`, який не впливав на задачі, що виконуються, під час використання драйвера лише з опитуванням (наприклад, `riverdatabasesql`). Подія `controlActionCancel` мовчки відкидалася в обробнику `queueControlCh` у `fetchAndRunLoop` замість того, щоб передаватися до `maybeCancelJob`. Примітка: це виправлення працює лише в межах одного процесу; скасування між процесами в конфігураціях лише з опитуванням мусять чекати наступного циклу опитування. [PR #1245](https://github.com/riverqueue/river/pull/1245).
+- Гарантовано, що задачі, які повертають власний тайм-аут -1 (без тайм-ауту), ніколи не рятуються. [PR #1288](https://github.com/riverqueue/river/pull/1288).
+- Тепер виявляються пронумеровані артефакти `REINDEX INDEX CONCURRENTLY` у Postgres, як-от `_ccnew1` і `_ccold2`, щоб переіндексатор не накопичував дедалі більше невдалих індексів-артефактів. Виправляє [#1296](https://github.com/riverqueue/river/issues/1296). [PR #1297](https://github.com/riverqueue/river/pull/1297).
 
 ## [0.39.0] - 2026-06-03
 
-⚠️ **Breaking API change:** `rivermigrate.Migrator.Validate` and `rivermigrate.Migrator.ValidateTx` now take a `*rivermigrate.ValidateOpts` parameter. Pass `nil` to preserve previous behavior. We normally endeavor not to make any breaking API changes, but this one will keep the API in a much nicer state, and is on an ancillary function that most installations won't be using. [PR #1259](https://github.com/riverqueue/river/pull/1259)
+⚠️ **Несумісна зміна API:** `rivermigrate.Migrator.Validate` і `rivermigrate.Migrator.ValidateTx` тепер приймають параметр `*rivermigrate.ValidateOpts`. Передайте `nil`, щоб зберегти попередню поведінку. Зазвичай ми намагаємося уникати несумісних змін API, але ця зміна залишить API в значно кращому стані й стосується допоміжної функції, якою більшість інсталяцій не користується. [PR #1259](https://github.com/riverqueue/river/pull/1259)
 
-### Added
+### Додано
 
-- Added `MetadataSet` to stage job metadata updates from worker middleware, `HookWorkBegin`, workers, or `HookWorkEnd`, with changes persisted when the job is completed. [PR #1269](https://github.com/riverqueue/river/pull/1269)
+- Додано `MetadataSet` для підготовки оновлень метаданих задачі з middleware воркера, `HookWorkBegin`, воркерів або `HookWorkEnd`; зміни зберігаються під час завершення задачі. [PR #1269](https://github.com/riverqueue/river/pull/1269)
 
-### Changed
+### Змінено
 
-- Add `rivermigrate.ValidateOpts.TargetVersion` so validation can check migrations up to a specific target version, matching the target-version behavior available on `Migrate` and `MigrateTx`. Notably, this is a breaking API change as the validate functions previously didn't take any options. [PR #1259](https://github.com/riverqueue/river/pull/1259)
-- When using `(*Migrator[TTx]).Migrate` with a `TargetVersion` that's already applied, River now no-ops idempotently instead of returning an error as a user convenience. [PR #1260](https://github.com/riverqueue/river/pull/1260)
-- Add logging statement for dropped job and queue subscription events at warn level when a subscriber buffer is full. [PR #1271](https://github.com/riverqueue/river/pull/1271)
+- Додано `rivermigrate.ValidateOpts.TargetVersion`, щоб валідація могла перевіряти міграції до певної цільової версії, як це вже можна робити з цільовою версією в `Migrate` і `MigrateTx`. Варто зазначити, що це несумісна зміна API, оскільки функції валідації раніше не приймали жодних опцій. [PR #1259](https://github.com/riverqueue/river/pull/1259)
+- Під час використання `(*Migrator[TTx]).Migrate` з `TargetVersion`, яку вже застосовано, River тепер для зручності користувача ідемпотентно нічого не робить замість повернення помилки. [PR #1260](https://github.com/riverqueue/river/pull/1260)
+- Додано запис у журнал на рівні warn для втрачених подій підписок на задачі та черги, коли буфер підписника заповнений. [PR #1271](https://github.com/riverqueue/river/pull/1271)
 
-### Fixed
+### Виправлено
 
-- Add a 10-second timeout around `StandardPilot.JobGetAvailable` so a stalled standard-pilot fetch no longer hangs a producer indefinitely. [PR #1255](https://github.com/riverqueue/river/pull/1255)
-- Fixed `rivertest.Worker.Work` and `WorkJob` to honor a configured custom `Config.Schema` when transitioning a job to its running state. Previously, the running-state update ran unqualified and could fail on a connection whose `search_path` didn't include the configured schema. [PR #1262](https://github.com/riverqueue/river/pull/1262)
+- Додано 10-секундний тайм-аут навколо `StandardPilot.JobGetAvailable`, щоб зависла вибірка стандартного пілота більше не блокувала продюсер безстроково. [PR #1255](https://github.com/riverqueue/river/pull/1255)
+- Виправлено `rivertest.Worker.Work` і `WorkJob`: тепер вони враховують налаштовану власну `Config.Schema` під час переведення задачі в стан виконання. Раніше оновлення стану виконання виконувалося без зазначення схеми й могло завершитися помилкою на з'єднанні, чий `search_path` не містив налаштованої схеми. [PR #1262](https://github.com/riverqueue/river/pull/1262)
 
 ## [0.38.0] - 2026-05-22
 
-### Added
+### Додано
 
-- Added new configuration `Config.SoftStopTimeout` to provide a cleaner way to gracefully stop a client. [PR #1239](https://github.com/riverqueue/river/pull/1239)
+- Додано нову конфігурацію `Config.SoftStopTimeout`, яка дає чистіший спосіб коректно зупинити клієнт. [PR #1239](https://github.com/riverqueue/river/pull/1239)
 
 ## [0.37.1] - 2026-05-15
 
-### Fixed
+### Виправлено
 
-- Wrap `PeriodicJobEnqueuer.insertBatch` database calls in a 30-second timeout. Previously, a stalled pgx `Begin`/`Insert`/`Commit` could hang the periodic enqueuer indefinitely, halting all periodic job insertion until the process was restarted or leader re-elected. [PR #1251](https://github.com/riverqueue/river/pull/1251)
+- Виклики бази даних у `PeriodicJobEnqueuer.insertBatch` обгорнуто 30-секундним тайм-аутом. Раніше завислий pgx `Begin`/`Insert`/`Commit` міг безстроково блокувати сервіс постановки періодичних задач у чергу, що зупиняло все додавання періодичних задач, доки процес не буде перезапущено або лідера не буде переобрано. [PR #1251](https://github.com/riverqueue/river/pull/1251)
 
 ## [0.37.0] - 2026-05-11
 
-### Added
+### Додано
 
-- Added "resumable jobs" that can be broken down into multiple steps and with a step persisted after it finishes that lets them skip work that's already been done. This is particularly useful for long running jobs that may experience a cancellation (like in the event of a deploy) during the span of their run. [PR #1226](https://github.com/riverqueue/river/pull/1226).
+- Додано «відновлювані задачі», які можна розбити на кілька кроків: кожен крок зберігається після завершення, що дає змогу пропускати вже виконану роботу. Це особливо корисно для довготривалих задач, які під час виконання можуть бути скасовані (наприклад, у разі деплою). [PR #1226](https://github.com/riverqueue/river/pull/1226).
 
 ## [0.36.0] - 2026-05-09
 
-### Added
+### Додано
 
-- Add `QeueueBundle.Remove` to remove an already added queue/producer. [PR #1235](https://github.com/riverqueue/river/pull/1235) and [PR #1240](https://github.com/riverqueue/river/pull/1240).
+- Додано `QeueueBundle.Remove` для вилучення вже доданої черги/продюсера. [PR #1235](https://github.com/riverqueue/river/pull/1235) і [PR #1240](https://github.com/riverqueue/river/pull/1240).
 
-### Fixed
+### Виправлено
 
-- Fix unsafe concurrent producer map access in client. [PR #1236](https://github.com/riverqueue/river/pull/1236).
-- Mark schema replacements as `Stable` in sqlc templates, preventing query SQL from having to be reallocated over and over again.. [PR #1242](https://github.com/riverqueue/river/pull/1242).
-- Fix bug in `sqltemplate` cached path in order in which named args are passed to a query (previously, the order was unstable). [PR #1243](https://github.com/riverqueue/river/pull/1243).
+- Виправлено небезпечний конкурентний доступ до мапи продюсерів у клієнті. [PR #1236](https://github.com/riverqueue/river/pull/1236).
+- Заміни схеми в шаблонах sqlc позначено як `Stable`, завдяки чому SQL запитів більше не доводиться виділяти в пам'яті знову і знову.. [PR #1242](https://github.com/riverqueue/river/pull/1242).
+- Виправлено помилку в кешованому шляху `sqltemplate`, пов'язану з порядком передавання іменованих аргументів у запит (раніше порядок був нестабільним). [PR #1243](https://github.com/riverqueue/river/pull/1243).
 
 ## [0.35.1] - 2026-04-26
 
-### Fixed
+### Виправлено
 
-- Fix accidentally inverted conditional on notifier error log check. [PR #1231](https://github.com/riverqueue/river/pull/1231).
+- Виправлено випадково інвертовану умову в перевірці журналювання помилок сповіщувача. [PR #1231](https://github.com/riverqueue/river/pull/1231).
 
 ## [0.35.0] - 2026-04-18
 
-### Changed
+### Змінено
 
-- Ignore errors like `tls: failed to send closeNotify alert (but connection was closed anyway)` when closing listeners. [PR #1216](https://github.com/riverqueue/river/pull/1216).
+- Помилки на кшталт `tls: failed to send closeNotify alert (but connection was closed anyway)` під час закриття слухачів тепер ігноруються. [PR #1216](https://github.com/riverqueue/river/pull/1216).
 
-### Fixed
+### Виправлено
 
-- Fixed leader election to track explicit database-issued leadership terms, reducing handoff flakiness and same-client reacquisition edge cases while making reelection and resign target the current leadership lease instead of a stale one. [PR #1213](https://github.com/riverqueue/river/pull/1213).
+- Вибори лідера тепер відстежують явні терміни лідерства, видані базою даних. Це зменшує нестабільність під час передавання лідерства та кількість граничних випадків повторного захоплення лідерства тим самим клієнтом, а переобрання й відмова від лідерства тепер стосуються поточної оренди лідерства, а не застарілої. [PR #1213](https://github.com/riverqueue/river/pull/1213).
 
 ## [0.34.0] - 2026-04-08
 
-### Added
+### Додано
 
-- Added `Config.ReindexerIndexNames` and `ReindexerIndexNamesDefault()` so the reindexer's target indexes can be customized from the public API. [PR #1194](https://github.com/riverqueue/river/pull/1194).
+- Додано `Config.ReindexerIndexNames` і `ReindexerIndexNamesDefault()`, щоб цільові індекси реіндексатора можна було налаштовувати через публічний API. [PR #1194](https://github.com/riverqueue/river/pull/1194).
 
-### Fixed
+### Виправлено
 
-- Upon a client gaining leadership, its queue maintainer is given more than one opportunity to start. [PR #1184](https://github.com/riverqueue/river/pull/1184).
+- Коли клієнт стає лідером, його обслуговувач черг отримує більше ніж одну спробу запуститися. [PR #1184](https://github.com/riverqueue/river/pull/1184).
 
 ## [0.33.0] - 2026-04-03
 
-### Changed
+### Змінено
 
-- Jobs erroring or panicking no longer logs at the error/warn level because this is not indicative of a problem inside of River itself. These log statements have been demoted to info. [PR #1190](https://github.com/riverqueue/river/pull/1190).
+- Помилки та паніки в задачах більше не журналюються на рівні error/warn, оскільки не свідчать про проблему всередині самого River. Ці записи журналу понижено до рівня info. [PR #1190](https://github.com/riverqueue/river/pull/1190).
 
-### Fixed
+### Виправлено
 
-- Fix in `Client.Start` where previously it was possible for a River client that only partially started before erroring to not try to start on subsequent `Start` invocations. [PR #1187](https://github.com/riverqueue/river/pull/1187).
+- Виправлено `Client.Start`: раніше клієнт River, який лише частково запустився до виникнення помилки, міг не намагатися запуститися під час наступних викликів `Start`. [PR #1187](https://github.com/riverqueue/river/pull/1187).
 
 ## [0.32.0] - 2026-03-23
 
-### Added
+### Додано
 
-- `riverlog.Middleware` now supports `MiddlewareConfig.MaxTotalBytes` (default 8 MB) to cap total persisted `river:log` history per job. When the cap is exceeded, oldest log entries are dropped first while retaining the newest entry. Values over 64 MB are clamped to 64 MB. [PR #1157](https://github.com/riverqueue/river/pull/1157).
+- `riverlog.Middleware` тепер підтримує `MiddlewareConfig.MaxTotalBytes` (за замовчуванням 8 МБ), що обмежує загальний обсяг збереженої історії `river:log` для кожної задачі. У разі перевищення ліміту спершу відкидаються найстаріші записи журналу, а найновіший запис зберігається. Значення понад 64 МБ обмежуються до 64 МБ. [PR #1157](https://github.com/riverqueue/river/pull/1157).
 
-### Changed
+### Змінено
 
-- Improved `riverlog` performance and reduced memory amplification when appending to large persisted `river:log` histories. [PR #1157](https://github.com/riverqueue/river/pull/1157).
-- Reduced snooze-path memory amplification by setting `snoozes` in metadata updates before marshaling, avoiding an extra full-payload JSON rewrite. [PR #1159](https://github.com/riverqueue/river/pull/1159).
-- Schema names are now quoted in SQL operations, enabling the use of spaces and other odd characters. [PR #1175](https://github.com/riverqueue/river/pull/1175).
+- Покращено продуктивність `riverlog` і зменшено надлишкове споживання пам'яті під час дописування до великих збережених історій `river:log`. [PR #1157](https://github.com/riverqueue/river/pull/1157).
+- Зменшено надлишкове споживання пам'яті на шляху відкладення: `snoozes` тепер встановлюється в оновленнях метаданих до серіалізації, що позбавляє зайвого перезапису всього JSON-навантаження. [PR #1159](https://github.com/riverqueue/river/pull/1159).
+- Імена схем тепер беруться в лапки в SQL-операціях, що дає змогу використовувати пробіли та інші незвичні символи. [PR #1175](https://github.com/riverqueue/river/pull/1175).
 
-### Fixed
+### Виправлено
 
-- `riverpgxv5` now adapts JSON parameters for `simple protocol` / `exec` query modes so `[]byte` JSON payloads are not encoded as `bytea` in pgx text-mode execution paths. This fixes invalid JSON syntax errors when running through protocol-constrained setups like PgBouncer transaction pooling while preserving normal behavior for explicit `bytea` parameters. Fixes [#1153](https://github.com/riverqueue/river/issues/1153). [PR #1155](https://github.com/riverqueue/river/pull/1155).
+- `riverpgxv5` тепер адаптує JSON-параметри для режимів запитів `simple protocol` / `exec`, щоб JSON-навантаження типу `[]byte` не кодувалися як `bytea` у шляхах виконання pgx у текстовому режимі. Це виправляє помилки некоректного синтаксису JSON під час роботи через конфігурації з обмеженнями протоколу, як-от пулінг на рівні транзакцій у PgBouncer, і водночас зберігає звичайну поведінку для явних параметрів `bytea`. Виправляє [#1153](https://github.com/riverqueue/river/issues/1153). [PR #1155](https://github.com/riverqueue/river/pull/1155).
 
 ## [0.31.0] - 2026-02-21
 
-### Added
+### Додано
 
-- Added root River CLI flag `--statement-timeout` so Postgres session statement timeout can be set explicitly for commands like migrations. Explicit flag values take priority over database URL query params, and query params still take priority over built-in defaults. [PR #1142](https://github.com/riverqueue/river/pull/1142).
+- Додано кореневий прапорець River CLI `--statement-timeout`, щоб тайм-аут виконання інструкцій для сесії Postgres можна було задавати явно для таких команд, як міграції. Явно задані значення прапорця мають пріоритет над параметрами запиту в URL бази даних, а параметри запиту, як і раніше, мають пріоритет над вбудованими значеннями за замовчуванням. [PR #1142](https://github.com/riverqueue/river/pull/1142).
 
-### Fixed
+### Виправлено
 
-- Fix connection leak in `Listener.Connect` in case where `afterConnectExec` failed. Thanks Johan Kjölhede ([@GiGurra](https://github.com/GiGurra))! [PR #1147](https://github.com/riverqueue/river/pull/1147).
-- Fix missing `ticker.Stop` in producer's `pollForSettingChanges` ([@GiGurra](https://github.com/GiGurra)). [PR #1148](https://github.com/riverqueue/river/pull/1148).
-- Fix accidental use of cancelled context for `Notifier.Ping` ([@GiGurra](https://github.com/GiGurra)). [PR #1149](https://github.com/riverqueue/river/pull/1149).
-- Add jitter to fetch poll loop to prevent producer stampeding ([@GiGurra](https://github.com/GiGurra)). [PR #1150](https://github.com/riverqueue/river/pull/1150).
+- Виправлено витік з'єднання в `Listener.Connect` у випадку, коли `afterConnectExec` завершувався помилкою. Дякуємо Johan Kjölhede ([@GiGurra](https://github.com/GiGurra))! [PR #1147](https://github.com/riverqueue/river/pull/1147).
+- Виправлено відсутній `ticker.Stop` у `pollForSettingChanges` продюсера ([@GiGurra](https://github.com/GiGurra)). [PR #1148](https://github.com/riverqueue/river/pull/1148).
+- Виправлено випадкове використання скасованого контексту для `Notifier.Ping` ([@GiGurra](https://github.com/GiGurra)). [PR #1149](https://github.com/riverqueue/river/pull/1149).
+- Додано джитер до циклу опитування для вибірки, щоб запобігти одночасному напливу запитів від продюсерів ([@GiGurra](https://github.com/GiGurra)). [PR #1150](https://github.com/riverqueue/river/pull/1150).
 
-### Changed
+### Змінено
 
-- Upgrade supported Go versions to 1.25 and 1.26, and update CI accordingly. [PR #1144](https://github.com/riverqueue/river/pull/1144).
+- Підтримувані версії Go оновлено до 1.25 і 1.26, CI відповідно оновлено. [PR #1144](https://github.com/riverqueue/river/pull/1144).
 
-### Fixed
+### Виправлено
 
-- `JobCountByQueueAndState` now returns consistent results across drivers, including requested queues with zero jobs, and deduplicates repeated queue names in input. This resolves an issue with the sqlite driver in River UI reported in [riverqueue/riverui#496](https://github.com/riverqueue/riverui#496). [PR #1140](https://github.com/riverqueue/river/pull/1140).
+- `JobCountByQueueAndState` тепер повертає узгоджені результати в усіх драйверах, зокрема для запитаних черг без жодної задачі, і дедуплікує повторювані імена черг у вхідних даних. Це усуває проблему з драйвером sqlite у River UI, про яку повідомлено в [riverqueue/riverui#496](https://github.com/riverqueue/riverui#496). [PR #1140](https://github.com/riverqueue/river/pull/1140).
 
 ## [0.30.2] - 2026-01-26
 
-### Fixed
+### Виправлено
 
-- Fix bug in worker-level stuck job detection. [PR #1133](https://github.com/riverqueue/river/pull/1133).
+- Виправлено помилку у виявленні завислих задач на рівні воркера. [PR #1133](https://github.com/riverqueue/river/pull/1133).
 
 ## [0.30.1] - 2026-01-19
 
-### Fixed
+### Виправлено
 
-- Stuck job detection now accounts for worker-level timeouts as well as client-level timeouts. [PR #1125](https://github.com/riverqueue/river/pull/1125).
+- Виявлення завислих задач тепер враховує тайм-аути як на рівні клієнта, так і на рівні воркера. [PR #1125](https://github.com/riverqueue/river/pull/1125).
 
 ## [0.30.0] - 2026-01-11
 
-### Fixed
+### Виправлено
 
-- Fix possible nil pointer panic when using nil `opts` in `Migrator.MigrateTx`. [PR #1117](https://github.com/riverqueue/river/pull/1117).
+- Виправлено можливу паніку через nil-вказівник у разі використання nil `opts` у `Migrator.MigrateTx`. [PR #1117](https://github.com/riverqueue/river/pull/1117).
 
 ## [0.29.0] - 2025-12-22
 
-### Added
+### Додано
 
-- Added `HookPeriodicJobsStart` that can be used to run custom logic when a periodic job enqueuer starts up on a new leader. [PR #1084](https://github.com/riverqueue/river/pull/1084).
-- Added `Client.Notify().RequestResign` and `Client.Notify().RequestResignTx` functions allowing any client to request that the current leader resign. [PR #1085](https://github.com/riverqueue/river/pull/1085).
-- Basic stuck detection after a job's exceeded its timeout and still not returned after the executor's initiated context cancellation and waited a short margin for the cancellation to take effect. [PR #1097](https://github.com/riverqueue/river/pull/1097).
-- Added `Client.JobUpdate` which can be used to persist job output partway through a running work function instead of having to wait until the job is completed. [PR #1098](https://github.com/riverqueue/river/pull/1098).
+- Додано `HookPeriodicJobsStart`, за допомогою якого можна виконувати власну логіку, коли сервіс постановки періодичних задач у чергу запускається на новому лідері. [PR #1084](https://github.com/riverqueue/river/pull/1084).
+- Додано функції `Client.Notify().RequestResign` і `Client.Notify().RequestResignTx`, які дають змогу будь-якому клієнту попросити поточного лідера відмовитися від лідерства. [PR #1085](https://github.com/riverqueue/river/pull/1085).
+- Базове виявлення зависання: задача вважається завислою, якщо вона перевищила свій тайм-аут і досі не повернула керування, хоча виконавець ініціював скасування контексту й зачекав невеликий проміжок часу, щоб скасування набуло чинності. [PR #1097](https://github.com/riverqueue/river/pull/1097).
+- Додано `Client.JobUpdate`, за допомогою якого можна зберігати вихідні дані задачі посеред виконання робочої функції, не чекаючи завершення задачі. [PR #1098](https://github.com/riverqueue/river/pull/1098).
 
-### Changed
+### Змінено
 
-- Add a little more error flavor for when encountering a deadline exceeded error on leadership election suggesting that the user may want to try increasing their database pool size. [PR #1101](https://github.com/riverqueue/river/pull/1101).
-- When migrating without an outer transaction, insert/delete version rows immediately after executing migration SQL so that in case a later migration fails, the migrator knows where to restart from. [PR #1106](https://github.com/riverqueue/river/pull/1106).
+- До помилки перевищення дедлайну під час виборів лідера додано трохи більше контексту з підказкою, що користувачеві, можливо, варто спробувати збільшити розмір пулу з'єднань бази даних. [PR #1101](https://github.com/riverqueue/river/pull/1101).
+- Під час міграції без зовнішньої транзакції рядки версій вставляються/видаляються одразу після виконання SQL міграції, щоб у разі збою пізнішої міграції мігратор знав, звідки продовжувати. [PR #1106](https://github.com/riverqueue/river/pull/1106).
 
 ## [0.28.0] - 2025-11-23
 
-### Added
+### Додано
 
-- Added `riverlog.LoggerSafely` which provides a non-panic variant of `riverlog.Logger` for use when code may or may not have a context logger available. [PR #1093](https://github.com/riverqueue/river/pull/1093).
+- Додано `riverlog.LoggerSafely` — варіант `riverlog.Logger` без паніки для випадків, коли логер у контексті може бути як доступним, так і ні. [PR #1093](https://github.com/riverqueue/river/pull/1093).
 
 ## [0.27.0] - 2025-11-14
 
-### Added
+### Додано
 
-- Periodic jobs with IDs may now be removed by ID using the new `PeriodicJobBundle.RemoveByID` and `PeriodicJobBundle.RemoveManyByID`. [PR #1071](https://github.com/riverqueue/river/pull/1071).
+- Періодичні задачі з ID тепер можна вилучати за ID за допомогою нових `PeriodicJobBundle.RemoveByID` і `PeriodicJobBundle.RemoveManyByID`. [PR #1071](https://github.com/riverqueue/river/pull/1071).
 
-### Changed
+### Змінено
 
-- Decrease `serviceutil.MaxAttemptsBeforeResetDefault` from 10 to 7, lowering the effective limit on most internal exponential backoffs from ~512 seconds to 64 seconds. Further lowered the leader elector's keep leadership backoff interval to cap out at 4 seconds since leadership without a successful heartbeat will be lost soon after that anyway. [PR #1079](https://github.com/riverqueue/river/pull/1079).
+- `serviceutil.MaxAttemptsBeforeResetDefault` зменшено з 10 до 7, що знижує фактичну межу більшості внутрішніх експоненційних затримок із ~512 секунд до 64 секунд. Крім того, інтервал затримки для утримання лідерства в електора лідера обмежено 4 секундами, оскільки без успішного heartbeat лідерство невдовзі після цього однаково буде втрачено. [PR #1079](https://github.com/riverqueue/river/pull/1079).
 
-### Fixed
+### Виправлено
 
-- Fix snoozed events emitted from `rivertest.Worker` when snooze duration is zero seconds. [PR #1057](https://github.com/riverqueue/river/pull/1057).
-- Rollbacks now use an uncancelled context so as to not leave transactions in an ambiguous state if a transaction in them fails due to context cancellation. [PR #1062](https://github.com/riverqueue/river/pull/1062).
-- Removing periodic jobs with IDs assigned also remove them from ID map. [PR #1070](https://github.com/riverqueue/river/pull/1070).
-- Clear periodic jobs also fully clears all those assigned with an ID. [PR #1083](https://github.com/riverqueue/river/pull/1083).
-- `river:"unique"` annotations on substructs within `JobArgs` structs are now factored into uniqueness `ByArgs` calculations. [PR #1076](https://github.com/riverqueue/river/pull/1076).
-- Stop subservices and embedded `baseservice.Service` on error in the event of a periodic job enqueuer start error. [PR #1081](https://github.com/riverqueue/river/pull/1081).
+- Виправлено події відкладення, які генерує `rivertest.Worker`, коли тривалість відкладення дорівнює нулю секунд. [PR #1057](https://github.com/riverqueue/river/pull/1057).
+- Відкати тепер використовують нескасований контекст, щоб не залишати транзакції в невизначеному стані, якщо транзакція в них завершується збоєм через скасування контексту. [PR #1062](https://github.com/riverqueue/river/pull/1062).
+- Вилучення періодичних задач із призначеними ID також вилучає їх із мапи ID. [PR #1070](https://github.com/riverqueue/river/pull/1070).
+- Очищення періодичних задач також повністю очищує всі задачі, яким призначено ID. [PR #1083](https://github.com/riverqueue/river/pull/1083).
+- Анотації `river:"unique"` на вкладених структурах усередині структур `JobArgs` тепер враховуються в обчисленні унікальності `ByArgs`. [PR #1076](https://github.com/riverqueue/river/pull/1076).
+- Підсервіси та вбудований `baseservice.Service` тепер зупиняються в разі помилки запуску сервісу постановки періодичних задач у чергу. [PR #1081](https://github.com/riverqueue/river/pull/1081).
 
 ## [0.26.0] - 2025-10-07
 
-⚠️ Internal APIs used for communication between River and River Pro have changed. If using River Pro, make sure to update River and River Pro to latest at the same time to get compatible versions. River v0.26.0 is compatible with River Pro v0.19.0.
+⚠️ Внутрішні API, що використовуються для взаємодії між River і River Pro, змінилися. Якщо ви використовуєте River Pro, оновлюйте River і River Pro до останніх версій одночасно, щоб отримати сумісні версії. River v0.26.0 сумісний із River Pro v0.19.0.
 
-### Added
+### Додано
 
-- The job rescuer now sets `river:rescue_count` with an integer count of how many times the job has been rescued by the `JobRescuer` maintenance process when it's considered stuck. [PR #1047](https://github.com/riverqueue/river/pull/1047).
+- Рятувальник задач тепер встановлює `river:rescue_count` — цілочисельний лічильник того, скільки разів задачу було врятовано процесом обслуговування `JobRescuer`, коли її вважали завислою. [PR #1047](https://github.com/riverqueue/river/pull/1047).
 
-### Changed
+### Змінено
 
-- Errors returned from job workers are now logged in full using a `slog.Any` attribute. Previously, only their error text was logged. [PR #1051](https://github.com/riverqueue/river/pull/1051).
+- Помилки, повернуті воркерами задач, тепер журналюються повністю за допомогою атрибута `slog.Any`. Раніше журналювався лише їхній текст. [PR #1051](https://github.com/riverqueue/river/pull/1051).
 
-### Fixed
+### Виправлено
 
-- Set `updated_at` when invoking pilot `PeriodicJobUpsert`. [PR #1045](https://github.com/riverqueue/river/pull/1045).
+- Тепер встановлюється `updated_at` під час виклику `PeriodicJobUpsert` пілота. [PR #1045](https://github.com/riverqueue/river/pull/1045).
 
 ## [0.25.0] - 2025-09-14
 
-⚠️ Internal APIs used for communication between River and River Pro have changed. If using River Pro, make sure to update River and River Pro to latest at the same time to get compatible versions. River v0.25.0 is compatible with River Pro v0.18.0.
+⚠️ Внутрішні API, що використовуються для взаємодії між River і River Pro, змінилися. Якщо ви використовуєте River Pro, оновлюйте River і River Pro до останніх версій одночасно, щоб отримати сумісні версії. River v0.25.0 сумісний із River Pro v0.18.0.
 
-### Changed
+### Змінено
 
-- Set minimum Go version to Go 1.24. [PR #1032](https://github.com/riverqueue/river/pull/1032).
-- **Breaking change:** `Client.JobDeleteMany` now requires the use of `JobDeleteManyParams.UnsafeAll` to delete all jobs without a filter applied. This is a safety feature to make it more difficult to accidentally delete all non-running jobs. This is a minor breaking change, but on a fairly new feature that's not likely to be used on purpose by very many people yet. [PR #1033](https://github.com/riverqueue/river/pull/1033).
+- Мінімальну версію Go встановлено на Go 1.24. [PR #1032](https://github.com/riverqueue/river/pull/1032).
+- **Несумісна зміна:** `Client.JobDeleteMany` тепер вимагає використання `JobDeleteManyParams.UnsafeAll` для видалення всіх задач без застосування фільтра. Це захисний механізм, який ускладнює випадкове видалення всіх задач, що не виконуються. Це незначна несумісна зміна, яка до того ж стосується доволі нової функції, що її навряд чи багато хто вже свідомо використовує. [PR #1033](https://github.com/riverqueue/river/pull/1033).
 
-### Fixed
+### Виправлено
 
-- Don't double log fetch errors. [PR #1025](https://github.com/riverqueue/river/pull/1025).
-- When snoozing a job with zero duration so that it's retried immediately, subscription events no longer appear incorrectly with a kind of `rivertype.EventKindJobFailed`. Instead they're assigned `rivertype.EventKindJobSnoozed` just like they would have with a non-zero snooze duration. [PR #1037](https://github.com/riverqueue/river/pull/1037).
+- Помилки вибірки більше не журналюються двічі. [PR #1025](https://github.com/riverqueue/river/pull/1025).
+- Коли задачу відкладають на нульовий час, щоб її було негайно повторено, події підписки більше не з'являються помилково з типом `rivertype.EventKindJobFailed`. Натомість їм призначається `rivertype.EventKindJobSnoozed`, так само як і за ненульової тривалості відкладення. [PR #1037](https://github.com/riverqueue/river/pull/1037).
 
 ## [0.24.0] - 2025-08-16
 
-⚠️ Version 0.24.0 has a breaking change in `HookWorkEnd.WorkEnd` in that a new `JobRow` parameter has been added to the function's signature. Any intergration defining a custom `HookWorkEnd` hook should update its implementation so the hook continues to be called correctly.
+⚠️ Версія 0.24.0 містить несумісну зміну в `HookWorkEnd.WorkEnd`: до сигнатури функції додано новий параметр `JobRow`. Будь-яка інтеграція, що визначає власний хук `HookWorkEnd`, має оновити свою реалізацію, щоб хук і надалі викликався коректно.
 
-⚠️ Internal APIs used for communication between River and River Pro have changed. If using River Pro, make sure to update River and River Pro to latest at the same time to get compatible versions. River v0.24.0 is compatible with River Pro v0.16.0.
+⚠️ Внутрішні API, що використовуються для взаємодії між River і River Pro, змінилися. Якщо ви використовуєте River Pro, оновлюйте River і River Pro до останніх версій одночасно, щоб отримати сумісні версії. River v0.24.0 сумісний із River Pro v0.16.0.
 
-### Added
+### Додано
 
-- The project now tests against [libSQL](https://github.com/tursodatabase/libsql), a popular SQLite fork. It's used through the same `riversqlite` driver that SQLite uses. [PR #957](https://github.com/riverqueue/river/pull/957)
-- Added `JobDeleteMany` operations that remove many jobs in a single operation according to input criteria. [PR #962](https://github.com/riverqueue/river/pull/962)
-- Added `Client.Schema()` method to return a client's configured schema. [PR #983](https://github.com/riverqueue/river/pull/983).
-- Integrated riverui queries into the driver system to pave the way for multi-driver UI support. [PR #983](https://github.com/riverqueue/river/pull/983).
-- Added `QueueConfig` level `FetchCooldown` and `FetchPollInterval` settings to enable queue-specific job fetch intervals. For example, a queue of high-priority jobs could be checked more often to improve responsiveness, while one with slow or time-insensitive tasks could be checked infrequently to reduce database load. [PR #994](https://github.com/riverqueue/river/pull/994).
+- Проєкт тепер тестується також із [libSQL](https://github.com/tursodatabase/libsql), популярним форком SQLite. Він використовується через той самий драйвер `riversqlite`, що й SQLite. [PR #957](https://github.com/riverqueue/river/pull/957)
+- Додано операції `JobDeleteMany`, які вилучають багато задач за одну операцію відповідно до вхідних критеріїв. [PR #962](https://github.com/riverqueue/river/pull/962)
+- Додано метод `Client.Schema()`, що повертає налаштовану схему клієнта. [PR #983](https://github.com/riverqueue/river/pull/983).
+- Запити riverui інтегровано в систему драйверів, щоб підготувати ґрунт для підтримки кількох драйверів в UI. [PR #983](https://github.com/riverqueue/river/pull/983).
+- Додано налаштування `FetchCooldown` і `FetchPollInterval` на рівні `QueueConfig`, що дають змогу задавати інтервали вибірки задач для окремих черг. Наприклад, чергу високопріоритетних задач можна перевіряти частіше для швидшого реагування, а чергу з повільними або нечутливими до часу задачами — рідше, щоб зменшити навантаження на базу даних. [PR #994](https://github.com/riverqueue/river/pull/994).
 
-### Changed
+### Змінено
 
-- Remove unecessary transactions where a single database operation will do. This reduces the number of subtransactions created which can be an operational benefit it many cases. [PR #950](https://github.com/riverqueue/river/pull/950)
-- Bring all driver tests into separate package so they don't leak dependencies. This removes dependencies from the top level `river` package that most River installations won't need, thereby reducing the transitive dependency load of most River installations. [PR #955](https://github.com/riverqueue/river/pull/955).
-- The reindexer maintenance service now reindexes all `river_job` indexes, including its primary key. This is expected to help in situations where the jobs table has in the past expanded to a very large size (which makes most indexes larger), is now a much more modest size, but has left the indexes in their expanded state. [PR #963](https://github.com/riverqueue/river/pull/963).
-- The River CLI now accepts a `--target-version` of 0 with `river migrate-down` to run all down migrations and remove all River tables (previously, -1 was used for this; -1 still works, but now 0 also works). [PR #966](https://github.com/riverqueue/river/pull/966).
-- **Breaking change:** The `HookWorkEnd` interface's `WorkEnd` function now receives a `JobRow` parameter in addition to the `error` it received before. Having a `JobRow` to work with is fairly crucial to most functionality that a hook would implement, and its previous omission was entirely an error. [PR #970](https://github.com/riverqueue/river/pull/970).
-- Add maximum bound to each job's `attempted_by` array so that in degenerate cases where a job is run many, many times (say it's snoozed hundreds of times), it doesn't grow to unlimited bounds. [PR #974](https://github.com/riverqueue/river/pull/974).
-- A logger passed in via `river.Config` now overrides the default test-based logger when using `rivertest.NewWorker`. [PR #980](https://github.com/riverqueue/river/pull/980).
-- Cleaner retention periods (`CancelledJobRetentionPeriod`, `CompletedJobRetentionPeriod`, `DiscardedJobRetentionPeriod`) can be configured to -1 to disable them so that the corresponding type of job is retained indefinitely. [PR #990](https://github.com/riverqueue/river/pull/990).
-- Jobs inserted from periodic jobs with IDs now have metadata `river:periodic_job_id` set so they can be traced back to the periodic job that inserted them. [PR #992](https://github.com/riverqueue/river/pull/992).
-- The unused function `WorkerDefaults.Hooks` has been removed. This is technically a breaking change, but this function was a vestigal refactoring artifact that was never used by anything, so in practice it shouldn't be breaking. [PR #997](https://github.com/riverqueue/river/pull/997).
-- Periodic job records are upserted immediately through a pilot when a client is started rather than the first time their associated job would run. This doesn't mean they're run immediately (they'll only run if `RunOnStart` is enabled), but rather just tracked immediately. [PR #998](https://github.com/riverqueue/river/pull/998).
-- The job scheduler still schedules jobs in batches of up to 10,000, but when it encounters a series of consecutive timeouts it assumes that the database is in a degraded state and switches to doing work in a smaller batch size of 1,000 jobs. [PR #1013](https://github.com/riverqueue/river/pull/1013).
-- Other maintenance services including the job cleaner, job rescuer, and queue cleaner also prefer a batch size of 10,000, but will fall back to smaller batches of 1,000 on consecutive database timeouts. [PR #1016](https://github.com/riverqueue/river/pull/1016).
+- Вилучено зайві транзакції там, де достатньо однієї операції з базою даних. Це зменшує кількість створюваних підтранзакцій, що в багатьох випадках може бути операційною перевагою. [PR #950](https://github.com/riverqueue/river/pull/950)
+- Усі тести драйверів перенесено в окремий пакет, щоб їхні залежності не протікали назовні. Це вилучає з пакета верхнього рівня `river` залежності, які не потрібні більшості інсталяцій River, і таким чином зменшує обсяг транзитивних залежностей для більшості інсталяцій River. [PR #955](https://github.com/riverqueue/river/pull/955).
+- Сервіс обслуговування реіндексатор тепер переіндексовує всі індекси `river_job`, включно з первинним ключем. Очікується, що це допоможе в ситуаціях, коли таблиця задач у минулому розрослася до дуже великого розміру (через що більшість індексів також збільшилася), а тепер має значно скромніший розмір, але індекси залишилися розрослими. [PR #963](https://github.com/riverqueue/river/pull/963).
+- River CLI тепер приймає `--target-version` зі значенням 0 у `river migrate-down`, щоб виконати всі down-міграції та вилучити всі таблиці River (раніше для цього використовувалося -1; -1 і надалі працює, але тепер працює й 0). [PR #966](https://github.com/riverqueue/river/pull/966).
+- **Несумісна зміна:** функція `WorkEnd` інтерфейсу `HookWorkEnd` тепер отримує параметр `JobRow` на додачу до `error`, який отримувала раніше. Наявність `JobRow` доволі критична для більшості функціональності, яку може реалізовувати хук, і його відсутність раніше була цілковитою помилкою. [PR #970](https://github.com/riverqueue/river/pull/970).
+- Додано максимальну межу для масиву `attempted_by` кожної задачі, щоб у вироджених випадках, коли задача виконується дуже багато разів (скажімо, її відкладають сотні разів), він не розростався необмежено. [PR #974](https://github.com/riverqueue/river/pull/974).
+- Логер, переданий через `river.Config`, тепер перевизначає типовий тестовий логер у разі використання `rivertest.NewWorker`. [PR #980](https://github.com/riverqueue/river/pull/980).
+- Періоди зберігання очищувача (`CancelledJobRetentionPeriod`, `CompletedJobRetentionPeriod`, `DiscardedJobRetentionPeriod`) можна встановити в -1, щоб вимкнути їх, і тоді задачі відповідного типу зберігатимуться безстроково. [PR #990](https://github.com/riverqueue/river/pull/990).
+- Задачі, додані з періодичних задач з ID, тепер мають метадані `river:periodic_job_id`, завдяки чому їх можна відстежити до періодичної задачі, яка їх додала. [PR #992](https://github.com/riverqueue/river/pull/992).
+- Вилучено невикористовувану функцію `WorkerDefaults.Hooks`. Формально це несумісна зміна, але ця функція була рудиментом рефакторингу і ніде не використовувалася, тож на практиці вона нічого не має зламати. [PR #997](https://github.com/riverqueue/river/pull/997).
+- Записи періодичних задач тепер вставляються або оновлюються (upsert) через пілот одразу під час запуску клієнта, а не тоді, коли пов'язана з ними задача мала б виконатися вперше. Це не означає, що вони виконуються одразу (вони виконаються, лише якщо ввімкнено `RunOnStart`), а лише те, що вони одразу відстежуються. [PR #998](https://github.com/riverqueue/river/pull/998).
+- Планувальник задач і надалі планує задачі пакетами до 10 000, але коли стикається з серією послідовних тайм-аутів, вважає, що база даних перебуває в деградованому стані, і переходить на роботу меншими пакетами по 1 000 задач. [PR #1013](https://github.com/riverqueue/river/pull/1013).
+- Інші сервіси обслуговування, зокрема очищувач задач, рятувальник задач і очищувач черг, також віддають перевагу розміру пакета 10 000, але в разі послідовних тайм-аутів бази даних переходять на менші пакети по 1 000. [PR #1016](https://github.com/riverqueue/river/pull/1016).
 
-### Fixed
+### Виправлено
 
-- Cleanly error on invalid schema names in `Config.Schema`. [PR #952](https://github.com/riverqueue/river/pull/952).
-- Jobs rescued by `JobRescuer` no longer have their trace set to "TODO". This becomes an empty string instead. [PR #1010](https://github.com/riverqueue/river/pull/1010).
+- Тепер у разі недійсних імен схем у `Config.Schema` повертається зрозуміла помилка. [PR #952](https://github.com/riverqueue/river/pull/952).
+- Задачі, врятовані `JobRescuer`, більше не мають трасування зі значенням "TODO". Натомість воно стає порожнім рядком. [PR #1010](https://github.com/riverqueue/river/pull/1010).
 
 ## [0.23.1] - 2025-06-04
 
-This includes a minor CLI bugfix for riverpro and no other changes, see the v0.23.0 notes for major changes.
+Цей реліз містить невелике виправлення CLI для riverpro і жодних інших змін; основні зміни див. у нотатках до v0.23.0.
 
-### Fixed
+### Виправлено
 
-- Fixed a riverpro CLI integration point broken in v0.23.0. [PR #945](https://github.com/riverqueue/river/pull/945)
+- Виправлено точку інтеграції CLI riverpro, зламану у v0.23.0. [PR #945](https://github.com/riverqueue/river/pull/945)
 
 ## [0.23.0] - 2025-06-04
 
-⚠️ Internal APIs used for communication between River and River Pro have changed. If using River Pro, make sure to update River and River Pro to latest at the same time to get compatible versions. River v0.23.0 is compatible with River Pro v0.15.0.
+⚠️ Змінилися внутрішні API, що використовуються для взаємодії між River і River Pro. Якщо ви використовуєте River Pro, оновлюйте River і River Pro до останніх версій одночасно, щоб отримати сумісні версії. River v0.23.0 сумісний з River Pro v0.15.0.
 
-**Terminal UI:** @almottier wrote a very cool [terminal UI for River](https://github.com/almottier/rivertui) featuring real-time job monitoring with automatic refresh, job filtering, a job details view providing detailed information (plus look up by ID in the UI or by command line argument), and job actions like retry and cancellation. And as good as all that might sound, go take a look because it's even better in person.
+**Термінальний UI:** @almottier написав дуже класний [термінальний UI для River](https://github.com/almottier/rivertui) з моніторингом задач у реальному часі й автоматичним оновленням, фільтруванням задач, переглядом деталей задачі з докладною інформацією (а також пошуком за ID в UI або через аргумент командного рядка) і діями над задачами, як-от повторна спроба та скасування. І хоч як добре це звучить, обов'язково погляньте самі, бо наживо він ще кращий.
 
-### Added
+### Додано
 
-- Preliminary River driver for SQLite (`riverdriver/riversqlite`). This driver seems to produce good results as judged by the test suite, but so far has minimal real world vetting. Try it and let us know how it works out. [PR #870](https://github.com/riverqueue/river/pull/870).
-- CLI `river migrate-get` now takes a `--schema` option to inject a custom schema into dumped migrations and schema comments are hidden if `--schema` option isn't provided. [PR #903](https://github.com/riverqueue/river/pull/903).
-- Added `riverlog.NewMiddlewareCustomContext` that makes the use of `riverlog` job-persisted logging possible with non-slog loggers. [PR #919](https://github.com/riverqueue/river/pull/919).
-- Added `RequireInsertedOpts.Schema`, allowing an explicit schema to be set when asserting on job inserts with `rivertest`. [PR #926](https://github.com/riverqueue/river/pull/926).
-- When using a driver that doesn't support listen/notify, producers within same process are notified immediately of new job inserts and queue changes (e.g. pause/resume) without having to poll when non-transactional variants are used (i.e. `Insert` instead of `InsertTx`). [PR #928](https://github.com/riverqueue/river/pull/928).
-- Added `JobListParams.Where`, which provides an escape hatch for job listing that runs arbitrary SQL with named parameters. [PR #933](https://github.com/riverqueue/river/pull/933).
+- Попередній драйвер River для SQLite (`riverdriver/riversqlite`). Судячи з набору тестів, драйвер дає добрі результати, але поки що мінімально перевірений у реальних умовах. Спробуйте його й повідомте нам, як він себе показує. [PR #870](https://github.com/riverqueue/river/pull/870).
+- Команда CLI `river migrate-get` тепер приймає опцію `--schema` для підстановки власної схеми у вивантажені міграції, а коментарі зі схемою приховуються, якщо опцію `--schema` не вказано. [PR #903](https://github.com/riverqueue/river/pull/903).
+- Додано `riverlog.NewMiddlewareCustomContext`, що дає змогу використовувати логування `riverlog` зі збереженням логів у задачі з логерами, відмінними від slog. [PR #919](https://github.com/riverqueue/river/pull/919).
+- Додано `RequireInsertedOpts.Schema`, що дає змогу явно задати схему під час перевірки додавання задач за допомогою `rivertest`. [PR #926](https://github.com/riverqueue/river/pull/926).
+- Під час використання драйвера без підтримки listen/notify продюсери в тому самому процесі одразу отримують сповіщення про додавання нових задач і зміни черг (наприклад, призупинення/відновлення) без потреби в опитуванні, якщо використовуються нетранзакційні варіанти (тобто `Insert` замість `InsertTx`). [PR #928](https://github.com/riverqueue/river/pull/928).
+- Додано `JobListParams.Where` — обхідний механізм для отримання списку задач, що виконує довільний SQL з іменованими параметрами. [PR #933](https://github.com/riverqueue/river/pull/933).
 
-### Changed
+### Змінено
 
-- Optimized the job completer's query `JobSetStateIfRunningMany`, resulting in an approximately 15% reduction in its duration when completing 2000 jobs, and around a 15-20% increase in `riverbench` throughput. [PR #904](https://github.com/riverqueue/river/pull/904).
-- `TimeStub` has been removed from the `rivertest` package. Its original inclusion was entirely accidentally and it should be considered entirely an internal API. [PR #912](https://github.com/riverqueue/river/pull/912).
-- When storing job-persisted logging with `riverlog`, if a work run's logging was completely empty, no metadata value is stored at all (previously, an empty value was stored). [PR #919](https://github.com/riverqueue/river/pull/919).
-- Changed the internal integration APIs for River Pro. River Pro users must upgrade both libraries as part of this update. [PR #929](https://github.com/riverqueue/river/pull/929).
+- Оптимізовано запит `JobSetStateIfRunningMany` у компоненті завершення задач (completer), що скоротило його тривалість приблизно на 15% під час завершення 2000 задач і підвищило пропускну здатність `riverbench` приблизно на 15-20%. [PR #904](https://github.com/riverqueue/river/pull/904).
+- `TimeStub` вилучено з пакета `rivertest`. Його було додано туди цілком випадково, і його слід вважати суто внутрішнім API. [PR #912](https://github.com/riverqueue/river/pull/912).
+- Під час збереження логів у задачі за допомогою `riverlog`, якщо логування під час виконання роботи було повністю порожнім, значення в метаданих не зберігається взагалі (раніше зберігалося порожнє значення). [PR #919](https://github.com/riverqueue/river/pull/919).
+- Змінено внутрішні API інтеграції для River Pro. Користувачі River Pro мають оновити обидві бібліотеки в межах цього оновлення. [PR #929](https://github.com/riverqueue/river/pull/929).
 
-### Fixed
+### Виправлено
 
-- Resuming an already unpaused queue is now fully an no-op, and won't touch the row's `updated_at` like it (unintentionally) did before. [PR #870](https://github.com/riverqueue/river/pull/870).
-- Suppress an error log line from the producer that may occur on normal shutdown when operating in poll-only mode. [PR #896](https://github.com/riverqueue/river/pull/896).
-- Added missing help documentation for CLI command `river migrate-list`. [PR #903](https://github.com/riverqueue/river/pull/903).
-- Correct handling an explicit schema in the reindexer maintenance service. [PR #916](https://github.com/riverqueue/river/pull/916).
-- Return specific explanatory error when attempting to use `JobListParams.Metadata` with `JobListTx` on SQLite. [PR #924](https://github.com/riverqueue/river/pull/924).
-- The reindexer now skips work if artifacts from a failed reindex are present under the assumption that if they are, a new reindex build is likely to fail again. Context cancel timeout is increased from 15 seconds to 1 minute, allowing more time for reindexes to finish. Timeout becomes configurable with `Config.ReindexerTimeout`. [PR #935](https://github.com/riverqueue/river/pull/935).
-- Accessing `Client.PeriodicJobs()` on an insert-only client now panics with a more helpful explanatory error message rather than an unhelpful nil pointer panic. [PR #938](https://github.com/riverqueue/river/pull/938).
-- Return an error when adding a new queue at runtime via the `QueueBundle` if that queue was already added. [PR #929](https://github.com/riverqueue/river/pull/929).
+- Відновлення черги, яка вже не призупинена, тепер повністю нічого не робить і не змінює `updated_at` рядка, як це (ненавмисно) відбувалося раніше. [PR #870](https://github.com/riverqueue/river/pull/870).
+- Приглушено рядок журналу з помилкою від продюсера, який може з'являтися під час штатного завершення роботи в режимі лише опитування. [PR #896](https://github.com/riverqueue/river/pull/896).
+- Додано відсутню довідку для команди CLI `river migrate-list`. [PR #903](https://github.com/riverqueue/river/pull/903).
+- Виправлено обробку явно заданої схеми в сервісі обслуговування переіндексатора (reindexer). [PR #916](https://github.com/riverqueue/river/pull/916).
+- Тепер повертається конкретна пояснювальна помилка під час спроби використати `JobListParams.Metadata` з `JobListTx` на SQLite. [PR #924](https://github.com/riverqueue/river/pull/924).
+- Переіндексатор тепер пропускає роботу, якщо наявні артефакти невдалої переіндексації, виходячи з припущення, що за їх наявності нова побудова індексу, найімовірніше, знову завершиться невдачею. Тайм-аут скасування контексту збільшено з 15 секунд до 1 хвилини, що дає переіндексаціям більше часу на завершення. Тайм-аут тепер можна налаштувати через `Config.ReindexerTimeout`. [PR #935](https://github.com/riverqueue/river/pull/935).
+- Звернення до `Client.PeriodicJobs()` на клієнті лише для вставки тепер спричиняє паніку з кориснішим пояснювальним повідомленням про помилку замість малоінформативної паніки через nil-вказівник. [PR #938](https://github.com/riverqueue/river/pull/938).
+- Тепер повертається помилка під час додавання нової черги під час роботи через `QueueBundle`, якщо цю чергу вже було додано. [PR #929](https://github.com/riverqueue/river/pull/929).
 
 ## [0.22.0] - 2025-05-10
 
-### Added
+### Додано
 
-- A new `JobArgsWithKindAliases` interface lets job args implement `KindAliases` to register a second kind that their worker will respond to. This provides a way to safely rename job kinds even with jobs using the original kind already in the database. [PR #880](https://github.com/riverqueue/river/pull/880).
+- Новий інтерфейс `JobArgsWithKindAliases` дає змогу аргументам задачі реалізувати `KindAliases`, щоб зареєструвати другий kind, на який відповідатиме їхній воркер. Це дає спосіб безпечно перейменовувати kind задач, навіть коли в базі даних уже є задачі з початковим kind. [PR #880](https://github.com/riverqueue/river/pull/880).
 
-### Changed
+### Змінено
 
-- Job kinds must comply to a format of `\A[\w][\w\-\[\]<>\/.·:+]+\z`, mainly in an attempt to eliminate commas and spaces to make format more predictable for an upcoming search UI. This check can be disabled for now using `Config.SkipJobKindValidation`, but this option will likely be removed in a future version of River. The new `JobArgsWithKindAliases` interface (see above) can be used to rename non-compliant kinds. [PR #879](https://github.com/riverqueue/river/pull/879).
+- Kind задач мають відповідати формату `\A[\w][\w\-\[\]<>\/.·:+]+\z` — головним чином для того, щоб позбутися ком і пробілів і зробити формат передбачуванішим для майбутнього UI пошуку. Поки що цю перевірку можна вимкнути за допомогою `Config.SkipJobKindValidation`, але цю опцію, імовірно, буде вилучено в одній із майбутніх версій River. Для перейменування невідповідних kind можна використати новий інтерфейс `JobArgsWithKindAliases` (див. вище). [PR #879](https://github.com/riverqueue/river/pull/879).
 
-### Fixed
+### Виправлено
 
-- The `riverdatabasesql` now fully supports raw connections through [`lib/pq`](https://github.com/lib/pq) rather than just `database/sql` through Pgx. We don't recommend the use of `lib/pq` as it's an unmaintained project, but this change should help with compatibility for older projects. [PR #883](https://github.com/riverqueue/river/pull/883).
+- `riverdatabasesql` тепер повністю підтримує прямі з'єднання через [`lib/pq`](https://github.com/lib/pq), а не лише `database/sql` через Pgx. Ми не рекомендуємо використовувати `lib/pq`, оскільки цей проєкт більше не підтримується, але ця зміна має допомогти із сумісністю для старіших проєктів. [PR #883](https://github.com/riverqueue/river/pull/883).
 
 ## [0.21.0] - 2025-05-02
 
-⚠️ Internal APIs used for communication between River and River Pro have changed. If using River Pro, make sure to update River and River Pro to latest at the same time to get compatible versions. River v0.21.0 is compatible with River Pro v0.13.0.
+⚠️ Змінилися внутрішні API, що використовуються для взаємодії між River і River Pro. Якщо ви використовуєте River Pro, оновлюйте River і River Pro до останніх версій одночасно, щоб отримати сумісні версії. River v0.21.0 сумісний з River Pro v0.13.0.
 
-### Added
+### Додано
 
-- Added `river/riverlog` containing middleware that injects a context logger to workers that collates log output and persists it with job metadata. [PR #844](https://github.com/riverqueue/river/pull/844).
-- Added `JobInsertMiddlewareFunc` and `WorkerMiddlewareFunc` to easily implement middleware with a function instead of a struct. [PR #844](https://github.com/riverqueue/river/pull/844).
-- Added `Config.Schema` which lets a non-default schema be injected explicitly into a River client that'll be used for all database operations. This may be particularly useful for proxies like PgBouncer that may not respect a schema configured in `search_path`. [PR #848](https://github.com/riverqueue/river/pull/848).
-- Added `rivertype.HookWorkEnd` hook interface that runs after a job has been worked. [PR #863](https://github.com/riverqueue/river/pull/863).
-- Added support for filtering jobs by a list of job IDs and by priorities in `JobList` and `JobListParams`. For more flexible job listing. [PR #871](https://github.com/riverqueue/river/pull/871).
+- Додано `river/riverlog` з middleware, яке впроваджує у воркери контекстний логер, що збирає вивід логів і зберігає його в метаданих задачі. [PR #844](https://github.com/riverqueue/river/pull/844).
+- Додано `JobInsertMiddlewareFunc` і `WorkerMiddlewareFunc`, щоб легко реалізовувати middleware за допомогою функції замість структури. [PR #844](https://github.com/riverqueue/river/pull/844).
+- Додано `Config.Schema`, що дає змогу явно передати клієнту River нетипову схему, яка використовуватиметься для всіх операцій з базою даних. Це може бути особливо корисним для проксі на кшталт PgBouncer, які можуть не враховувати схему, налаштовану в `search_path`. [PR #848](https://github.com/riverqueue/river/pull/848).
+- Додано інтерфейс хука `rivertype.HookWorkEnd`, який виконується після опрацювання задачі. [PR #863](https://github.com/riverqueue/river/pull/863).
+- Додано підтримку фільтрування задач за списком ID задач і за пріоритетами в `JobList` і `JobListParams`. Для гнучкішого отримання списку задач. [PR #871](https://github.com/riverqueue/river/pull/871).
 
-### Changed
+### Змінено
 
-- Client no longer returns an error if stopped before startup could complete (previously, it returned the unexported `ErrShutdown`). [PR #841](https://github.com/riverqueue/river/pull/841).
+- Клієнт більше не повертає помилку, якщо його зупинено до завершення запуску (раніше він повертав неекспортовану `ErrShutdown`). [PR #841](https://github.com/riverqueue/river/pull/841).
 
-### Fixed
+### Виправлено
 
-- A queue unpausing triggers an immediate fetch so that available jobs in the paused queue may be started faster than before. [PR #854](https://github.com/riverqueue/river/pull/854).
+- Відновлення призупиненої черги ініціює негайну вибірку, тож доступні задачі в призупиненій черзі можуть запускатися швидше, ніж раніше. [PR #854](https://github.com/riverqueue/river/pull/854).
 
 ## [0.20.2] - 2025-04-08
 
-### Added
+### Додано
 
-- Added `QueueUpdateTx` API so there's a transactional variant of the `QueueUpdate` API from [PR #834](https://github.com/riverqueue/river/pull/834). [PR #838](https://github.com/riverqueue/river/pull/838).
+- Додано API `QueueUpdateTx` — транзакційний варіант API `QueueUpdate` з [PR #834](https://github.com/riverqueue/river/pull/834). [PR #838](https://github.com/riverqueue/river/pull/838).
 
 ## [0.20.1] - 2025-04-05
 
-### Fixed
+### Виправлено
 
-- Corrected the serialization of queue control event payloads emitted by `QueueUpdate`. [PR #834](https://github.com/riverqueue/river/pull/834).
+- Виправлено серіалізацію корисного навантаження подій керування чергою, які генерує `QueueUpdate`. [PR #834](https://github.com/riverqueue/river/pull/834).
 
 ## [0.20.0] - 2025-04-04
 
-### Added
+### Додано
 
-- Added a `QueueUpdate` API to the `Client` which will be used for upcoming functionality. [PR #822](https://github.com/riverqueue/river/pull/822).
+- До `Client` додано API `QueueUpdate`, який використовуватиметься для майбутньої функціональності. [PR #822](https://github.com/riverqueue/river/pull/822).
 
-### Changed
+### Змінено
 
-- Set minimum Go version to Go 1.23. [PR #811](https://github.com/riverqueue/river/pull/811).
-- Deprecate `river.JobInsertMiddlewareDefaults` and `river.WorkerMiddlewareDefaults` in favor of the more general `river.MiddlewareDefaults` embeddable struct. The two former structs will be removed in a future version. [PR #815](https://github.com/riverqueue/river/pull/815).
+- Мінімальну версію Go встановлено на Go 1.23. [PR #811](https://github.com/riverqueue/river/pull/811).
+- `river.JobInsertMiddlewareDefaults` і `river.WorkerMiddlewareDefaults` оголошено застарілими на користь загальнішої вбудовуваної структури `river.MiddlewareDefaults`. Ці дві структури буде вилучено в одній із майбутніх версій. [PR #815](https://github.com/riverqueue/river/pull/815).
 
-### Fixed
+### Виправлено
 
-- Cleanly error when attempting to add a queue at runtime to a `Client` which was not configured to run jobs (no `Workers`). [PR #826](https://github.com/riverqueue/river/pull/826).
+- Тепер коректно повертається помилка під час спроби додати чергу під час роботи до `Client`, який не налаштовано на виконання задач (немає `Workers`). [PR #826](https://github.com/riverqueue/river/pull/826).
 
 ## [0.19.0] - 2025-03-16
 
-⚠️ Version 0.19.0 has minor breaking changes for the `Worker.Middleware`, introduced fairly recently in 0.17.0 that has a worker's `Middleware` function now taking a non-generic `JobRow` parameter instead of a generic `Job[T]`. We tried not to make this change, but found the existing middleware interface insufficient to provide the necessary range of functionality we wanted, and this is a secondary middleware facility that won't be in use for many users, so it seemed worthwhile.
+⚠️ Версія 0.19.0 містить незначні несумісні зміни для `Worker.Middleware`, доданого відносно нещодавно в 0.17.0: функція воркера `Middleware` тепер приймає негенеричний параметр `JobRow` замість генеричного `Job[T]`. Ми намагалися обійтися без цієї зміни, але виявилося, що наявний інтерфейс middleware недостатній для потрібного нам набору функціональності, а це другорядний механізм middleware, яким користуватимуться небагато користувачів, тож зміна видалася виправданою.
 
-### Added
+### Додано
 
-- Added a new "hooks" API for tying into River functionality at various points like job inserts or working. Differs from middleware in that it doesn't go on the stack and can't modify context, but in some cases is able to run at a more granular level (e.g. for each job insert rather than each _batch_ of inserts). [PR #789](https://github.com/riverqueue/river/pull/789).
-- `river.Config` has a generic `Middleware` setting that can be used as a convenient way to configure middlewares that implement multiple middleware interfaces (e.g. `JobInsertMiddleware` _and_ `WorkerMiddleware`). Use of this setting is preferred over `Config.JobInsertMiddleware` and `Config.WorkerMiddleware`, which have been deprecated. [PR #804](https://github.com/riverqueue/river/pull/804).
+- Додано новий API «хуків» для підключення до функціональності River у різних точках, як-от додавання або опрацювання задач. Він відрізняється від middleware тим, що не потрапляє в стек і не може змінювати контекст, але в деяких випадках може виконуватися на детальнішому рівні (наприклад, для кожного додавання задачі, а не для кожного _пакета_ додавань). [PR #789](https://github.com/riverqueue/river/pull/789).
+- `river.Config` має загальне налаштування `Middleware`, яке є зручним способом налаштувати middleware, що реалізують кілька інтерфейсів middleware (наприклад, `JobInsertMiddleware` _і_ `WorkerMiddleware`). Цьому налаштуванню слід надавати перевагу над `Config.JobInsertMiddleware` і `Config.WorkerMiddleware`, які оголошено застарілими. [PR #804](https://github.com/riverqueue/river/pull/804).
 
-### Changed
+### Змінено
 
-- The `river.RecordOutput` function now returns an error if the output is too large. The output is limited to 32MB in size. [PR #782](https://github.com/riverqueue/river/pull/782).
-- **Breaking change:** The `Worker` interface's `Middleware` function now takes a `JobRow` parameter instead of a generic `Job[T]`. This was necessary to expand the potential of what middleware can do: by letting the executor extract a middleware stack from a worker before a job is fully unmarshaled, the middleware can also participate in the unmarshaling process. [PR #783](https://github.com/riverqueue/river/pull/783).
-- `JobList` has been reimplemented to use sqlc. [PR #795](https://github.com/riverqueue/river/pull/795).
+- Функція `river.RecordOutput` тепер повертає помилку, якщо вихідне значення завелике. Розмір вихідного значення обмежено 32MB. [PR #782](https://github.com/riverqueue/river/pull/782).
+- **Несумісна зміна:** функція `Middleware` інтерфейсу `Worker` тепер приймає параметр `JobRow` замість генеричного `Job[T]`. Це було необхідно, щоб розширити можливості middleware: оскільки виконавець може отримати стек middleware з воркера ще до повного демаршалінгу задачі, middleware також може брати участь у процесі демаршалінгу. [PR #783](https://github.com/riverqueue/river/pull/783).
+- `JobList` переписано з використанням sqlc. [PR #795](https://github.com/riverqueue/river/pull/795).
 
 ## [0.18.0] - 2025-02-20
 
-⚠️ Version 0.18.0 has breaking changes for the `rivertest.Worker` type that was just introduced. While attempting to round out some edge cases with its design, we realized some of them simply couldn't be solved adequately without changing the overall design such that all tested jobs are inserted into the database. Given the short duration since it was released (over a weekend) it's unlikely many users have adopted it and it seemed best to rip off the bandaid to fix it before it gets widely used.
+⚠️ Версія 0.18.0 містить несумісні зміни для щойно доданого типу `rivertest.Worker`. Намагаючись довершити його дизайн у деяких граничних випадках, ми зрозуміли, що частину з них просто неможливо адекватно розв'язати без зміни загального дизайну так, щоб усі задачі, які тестуються, вставлялися в базу даних. З огляду на те, що від релізу минуло зовсім мало часу (одні вихідні), навряд чи багато користувачів устигли почати ним користуватися, тож видалося найкращим зірвати пластир одразу й виправити це, доки тип не набув широкого використання.
 
-### Added
+### Додано
 
-- Jobs can now store a recorded "output" value, a JSON-encoded payload set by the job during execution and stored in the job's metadata. The `river.RecordOutput` function makes it easy to use the job row to store transient/temporary values that are needed for introspection or for other downstream jobs. The output can be accessed using the `JobRow.Output()` helper method.
+- Задачі тепер можуть зберігати записане «вихідне значення» (output) — закодоване в JSON корисне навантаження, яке задача задає під час виконання і яке зберігається в метаданих задачі. Функція `river.RecordOutput` дає змогу легко використовувати рядок задачі для зберігання тимчасових/проміжних значень, потрібних для інтроспекції або для інших задач далі в ланцюжку. Отримати вихідне значення можна за допомогою допоміжного методу `JobRow.Output()`.
 
-  This output is stored at the same time as the job is completed following execution, so it does not require additional database calls or overhead. Output can be anything that can be stored in a Postgres JSONB field, though for performance reasons it should be limited in size. [PR #758](https://github.com/riverqueue/river/pull/758).
+  Це вихідне значення зберігається одночасно із завершенням задачі після виконання, тож воно не потребує додаткових звернень до бази даних і не створює накладних витрат. Вихідним значенням може бути будь-що, що можна зберегти в полі Postgres JSONB, хоча з міркувань продуктивності його розмір слід обмежувати. [PR #758](https://github.com/riverqueue/river/pull/758).
 
-### Changed
+### Змінено
 
-- **Breaking change:** The `rivertest.Worker` type now requires all jobs to be inserted into the database. The original design allowed workers to be tested without hitting the database at all. Ultimately this design made it hard to correctly simulate features like `JobCompleteTx` and the other potential solutions seemed undesirable.
+- **Несумісна зміна:** тип `rivertest.Worker` тепер вимагає, щоб усі задачі були вставлені в базу даних. Початковий дизайн дозволяв тестувати воркери взагалі без звернення до бази даних. Зрештою через такий дизайн було важко коректно імітувати можливості на кшталт `JobCompleteTx`, а інші потенційні рішення видавалися небажаними.
 
-  As part of this change, the `Work` and `WorkJob` methods now take a transaction argument. The expectation is that a transaction will be opened by the caller and rolled back after test completion. Additionally, the return signature was changed to return a `WorkResult` struct alongside the error. The struct includes the post-execution job row as well as the event kind that occurred, making it easy to inspect the job's state after execution.
+  У межах цієї зміни методи `Work` і `WorkJob` тепер приймають аргумент транзакції. Очікується, що транзакцію відкриває викликач і відкочує її після завершення тесту. Крім того, змінено сигнатуру повернення: тепер разом із помилкою повертається структура `WorkResult`. Структура містить рядок задачі після виконання, а також тип події, що сталася, тож стан задачі після виконання легко перевірити.
 
-  Finally, the implementation was refactored so that it uses the _real_ `river.Client` insert path, and also uses the same job execution path as real execution. This minimizes the potential for differences in behavior between testing and real execution.
+  Нарешті, реалізацію відрефакторено так, що вона використовує _справжній_ шлях додавання `river.Client`, а також той самий шлях виконання задач, що й під час реального виконання. Це мінімізує ймовірність розбіжностей у поведінці між тестуванням і реальним виконанням.
   [PR #766](https://github.com/riverqueue/river/pull/766).
 
-- Adjusted panic stack traces to filter out irrelevant frames like the ones generated by the runtime package that constructed the trace, or River's internal rescuing code. This makes the first panic frame reflect the actual panic origin for easier debugging. [PR #774](https://github.com/riverqueue/river/pull/774).
+- Скориговано стек-трейси панік, щоб відфільтровувати нерелевантні фрейми, як-от згенеровані пакетом runtime, що побудував трасування, або внутрішнім кодом River для перехоплення паніки. Завдяки цьому перший фрейм паніки відображає її справжнє джерело, що спрощує налагодження. [PR #774](https://github.com/riverqueue/river/pull/774).
 
-### Fixed
+### Виправлено
 
-- Fix error message on unsuccessful client subscribe that erroneously referred to "Workers" not configured. [PR #771](https://github.com/riverqueue/river/pull/771).
-- Fix an issue with encoding unique keys in riverdatabasesql driver. [PR #777](https://github.com/riverqueue/river/pull/777).
+- Виправлено повідомлення про помилку під час невдалої підписки клієнта, яке помилково посилалося на неналаштовані "Workers". [PR #771](https://github.com/riverqueue/river/pull/771).
+- Виправлено проблему з кодуванням унікальних ключів у драйвері riverdatabasesql. [PR #777](https://github.com/riverqueue/river/pull/777).
 
 ## [0.17.0] - 2025-02-16
 
-### Added
+### Додано
 
-- Exposed `TestConfig` struct on `Config` under the `Test` field for configuration that is specific to test environments. For now, the only field on this type is `Time`, which can be used to set a synthetic `TimeGenerator` for tests. A stubbable time generator was added as `rivertest.TimeStub` to allow time to be easily stubbed in tests. [PR #754](https://github.com/riverqueue/river/pull/754).
-- New `rivertest.Worker` type to make it significantly easier to test River workers. Either real or synthetic jobs can be worked using this interface, generally without requiring any database interactions. The `Worker` type provides a realistic execution environment with access to the full range of River features, including `river.ClientFromContext`, middleware (both global and per-worker), and timeouts. [PR #753](https://github.com/riverqueue/river/pull/753).
+- У `Config` відкрито структуру `TestConfig` у полі `Test` для конфігурації, специфічної для тестових середовищ. Наразі єдине поле цього типу — `Time`, за допомогою якого можна задати синтетичний `TimeGenerator` для тестів. Як `rivertest.TimeStub` додано генератор часу з підтримкою заглушок, щоб у тестах можна було легко підміняти час. [PR #754](https://github.com/riverqueue/river/pull/754).
+- Новий тип `rivertest.Worker` значно спрощує тестування воркерів River. За допомогою цього інтерфейсу можна опрацьовувати як реальні, так і синтетичні задачі, здебільшого без жодної взаємодії з базою даних. Тип `Worker` надає реалістичне середовище виконання з доступом до повного набору можливостей River, зокрема `river.ClientFromContext`, middleware (як глобальних, так і для окремих воркерів) і тайм-аутів. [PR #753](https://github.com/riverqueue/river/pull/753).
 
-### Changed
+### Змінено
 
-- Errors returned from retryable jobs are now logged with warning logs instead of error logs. Error logs are still used for jobs that error after reaching `max_attempts`. [PR #743](https://github.com/riverqueue/river/pull/743).
-- Remove range variable capture in `for` loops and use simplified `range` syntax. Each of these requires Go 1.22 or later, which was already our minimum required version since Go 1.23 was released. [PR #755](https://github.com/riverqueue/river/pull/755).
+- Помилки, повернуті задачами, для яких можлива повторна спроба, тепер логуються як попередження, а не як помилки. Логування з рівнем помилки й далі використовується для задач, які завершуються з помилкою після досягнення `max_attempts`. [PR #743](https://github.com/riverqueue/river/pull/743).
+- Вилучено захоплення змінних циклу в циклах `for` і використано спрощений синтаксис `range`. Обидві зміни потребують Go 1.22 або новішої версії, яка й так була нашою мінімальною вимогою після виходу Go 1.23. [PR #755](https://github.com/riverqueue/river/pull/755).
 
-### Fixed
+### Виправлено
 
-- `riverdatabasesql` driver: properly handle `nil` values in `bytea[]` inputs. This fixes the driver's handling of empty unique keys on insert for non-unique jobs with the newer unique jobs implementation. [PR #739](https://github.com/riverqueue/river/pull/739).
-- `JobCompleteTx` now returns `rivertype.ErrNotFound` if the job doesn't exist instead of panicking. [PR #753](https://github.com/riverqueue/river/pull/753).
-- - `NeverSchedule.Next` now returns the correct maximum time value, ensuring that the periodic job truly never runs. This fixes an issue where an incorrect maximum timestamp was previously used. Thanks Hubert Krauze ([@krhubert](https://github.com/krhubert))! [PR #760](https://github.com/riverqueue/river/pull/760)
+- Драйвер `riverdatabasesql`: коректна обробка значень `nil` у вхідних даних `bytea[]`. Це виправляє обробку драйвером порожніх унікальних ключів під час вставки неунікальних задач у новішій реалізації унікальних задач. [PR #739](https://github.com/riverqueue/river/pull/739).
+- `JobCompleteTx` тепер повертає `rivertype.ErrNotFound`, якщо задачі не існує, замість того щоб панікувати. [PR #753](https://github.com/riverqueue/river/pull/753).
+- - `NeverSchedule.Next` тепер повертає правильне максимальне значення часу, гарантуючи, що періодична задача справді ніколи не запуститься. Це виправляє проблему, через яку раніше використовувалася неправильна максимальна позначка часу. Дякуємо Hubert Krauze ([@krhubert](https://github.com/krhubert))! [PR #760](https://github.com/riverqueue/river/pull/760)
 
 ## [0.16.0] - 2024-01-27
 
-### Added
+### Додано
 
-- `NeverSchedule` returns a `PeriodicSchedule` that never runs. This can be used to effectively disable the reindexer or any other maintenance service. [PR #718](https://github.com/riverqueue/river/pull/718).
-- Add `SkipUnknownJobCheck` client config option to skip job arg worker validation. [PR #731](https://github.com/riverqueue/river/pull/731).
+- `NeverSchedule` повертає `PeriodicSchedule`, який ніколи не спрацьовує. Його можна використати, щоб фактично вимкнути переіндексатор або будь-який інший сервіс обслуговування. [PR #718](https://github.com/riverqueue/river/pull/718).
+- Додано опцію конфігурації клієнта `SkipUnknownJobCheck`, щоб пропускати перевірку наявності воркерів для аргументів задач. [PR #731](https://github.com/riverqueue/river/pull/731).
 
-### Changed
+### Змінено
 
-- The reindexer maintenance process has been enabled. As of now, it will reindex only the `river_job_args_index` and `river_jobs_metadata_index` `GIN` indexes, which are more prone to bloat than b-tree indexes. By default it runs daily at midnight UTC, but can be customized on the `river.Config` type via `ReindexerSchedule`. Most installations will benefit from this process, but it can be disabled altogether using `NeverSchedule`. [PR #718](https://github.com/riverqueue/river/pull/718).
-- Periodic jobs now have a `"periodic": true` attribute set in their metadata to make them more easily distinguishable from other types of jobs. [PR #728](https://github.com/riverqueue/river/pull/728).
-- Snoozing a job now causes its `attempt` to be _decremented_, whereas previously the `max_attempts` would be incremented. In either case, this avoids allowing a snooze to exhaust a job's retries; however the new behavior also avoids potential issues with wrapping the `max_attempts` value, and makes it simpler to implement a `RetryPolicy` based on either `attempt` or `max_attempts`. The number of snoozes is also tracked in the job's metadata as `snoozes` for debugging purposes.
+- Увімкнено процес обслуговування переіндексатора. Наразі він переіндексовує лише індекси `GIN` `river_job_args_index` і `river_jobs_metadata_index`, які більше схильні до розростання, ніж індекси b-tree. За замовчуванням він запускається щодня опівночі за UTC, але це можна налаштувати в типі `river.Config` через `ReindexerSchedule`. Більшості інсталяцій цей процес піде на користь, але його можна повністю вимкнути за допомогою `NeverSchedule`. [PR #718](https://github.com/riverqueue/river/pull/718).
+- Періодичні задачі тепер мають у метаданих атрибут `"periodic": true`, щоб їх було легше відрізнити від інших типів задач. [PR #728](https://github.com/riverqueue/river/pull/728).
+- Відкладення задачі тепер _зменшує_ її `attempt`, тоді як раніше збільшувалося `max_attempts`. В обох випадках це не дає відкладенню вичерпати повторні спроби задачі; однак нова поведінка також усуває потенційні проблеми з переповненням значення `max_attempts` і спрощує реалізацію `RetryPolicy` на основі `attempt` або `max_attempts`. Кількість відкладень також відстежується в метаданих задачі як `snoozes` для потреб налагодження.
 
-  The implementation of the builtin `RetryPolicy` implementations is not changed, so this change should not cause any user-facing breakage unless you're relying on `attempt - len(errors)` for some reason. [PR #730](https://github.com/riverqueue/river/pull/730).
+  Вбудовані реалізації `RetryPolicy` не змінено, тож ця зміна не має нічого зламати для користувачів, якщо тільки ви з якоїсь причини не покладаєтеся на `attempt - len(errors)`. [PR #730](https://github.com/riverqueue/river/pull/730).
 
-- `ByPeriod` uniqueness is now based off a job's `ScheduledAt` instead of the current time if it has a value. [PR #734](https://github.com/riverqueue/river/pull/734).
+- Унікальність `ByPeriod` тепер визначається за `ScheduledAt` задачі замість поточного часу, якщо це поле має значення. [PR #734](https://github.com/riverqueue/river/pull/734).
 
 ## [0.15.0] - 2024-12-26
 
-### Added
+### Додано
 
-- The River CLI will now respect the standard set of `PG*` environment variables like `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, and `PGSSLMODE` to configure a target database when the `--database-url` parameter is omitted. [PR #702](https://github.com/riverqueue/river/pull/702).
-- Add missing doc for `JobRow.UniqueStates` + reveal `rivertype.UniqueOptsByStateDefault()` to provide access to the default set of unique job states. [PR #707](https://github.com/riverqueue/river/pull/707).
+- CLI River тепер враховує стандартний набір змінних середовища `PG*`, як-от `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` і `PGSSLMODE`, для налаштування цільової бази даних, якщо параметр `--database-url` не вказано. [PR #702](https://github.com/riverqueue/river/pull/702).
+- Додано відсутню документацію для `JobRow.UniqueStates` + відкрито `rivertype.UniqueOptsByStateDefault()` для доступу до типового набору станів унікальних задач. [PR #707](https://github.com/riverqueue/river/pull/707).
 
-### Changed
+### Змінено
 
-- Sleep durations are now logged as Go-like duration strings (e.g. "10s") in either text or JSON instead of duration strings in text and nanoseconds in JSON. [PR #699](https://github.com/riverqueue/river/pull/699).
-- Altered the migration comments from `river migrate-get` to include the "line" of the migration being run (`main`, or for River Pro `workflow` and `sequence`) to make them more distinguishable. [PR #703](https://github.com/riverqueue/river/pull/703).
-- Fewer slice allocations during unique insertions. [PR #705](https://github.com/riverqueue/river/pull/705).
+- Тривалості очікування тепер логуються як рядки тривалості в стилі Go (наприклад, "10s") як у текстовому форматі, так і в JSON, замість рядків тривалості в тексті та наносекунд у JSON. [PR #699](https://github.com/riverqueue/river/pull/699).
+- Коментарі міграцій від `river migrate-get` тепер містять «лінію» міграції, що виконується (`main` або, для River Pro, `workflow` і `sequence`), щоб їх було легше розрізняти. [PR #703](https://github.com/riverqueue/river/pull/703).
+- Менше виділень пам'яті під слайси під час додавання унікальних задач. [PR #705](https://github.com/riverqueue/river/pull/705).
 
-### Fixed
+### Виправлено
 
-- Exponential backoffs at degenerately high job attempts (>= 310) no longer risk overflowing `time.Duration`. [PR #698](https://github.com/riverqueue/river/pull/698).
+- Експоненційні затримки (backoff) за аномально великої кількості спроб задачі (>= 310) більше не ризикують переповнити `time.Duration`. [PR #698](https://github.com/riverqueue/river/pull/698).
 
 ## [0.14.3] - 2024-12-14
 
-### Changed
+### Змінено
 
-- Dropped internal random generators in favor of `math/rand/v2`, which will have the effect of making code fully incompatible with Go 1.21 (`go.mod` has specified a minimum of 1.22 for some time already though). [PR #691](https://github.com/riverqueue/river/pull/691).
+- Вилучено внутрішні генератори випадкових чисел на користь `math/rand/v2`, через що код стане повністю несумісним із Go 1.21 (утім, `go.mod` уже деякий час вимагає щонайменше 1.22). [PR #691](https://github.com/riverqueue/river/pull/691).
 
-### Fixed
+### Виправлено
 
-- 006 migration now tolerates previous existence of a `unique_states` column in case it was added separately so that the new index could be raised with `CONCURRENTLY`. [PR #690](https://github.com/riverqueue/river/pull/690).
+- Міграція 006 тепер допускає, що стовпець `unique_states` уже існує, на випадок, якщо його було додано окремо, щоб новий індекс можна було створити з `CONCURRENTLY`. [PR #690](https://github.com/riverqueue/river/pull/690).
 
 ## [0.14.2] - 2024-11-16
 
-### Fixed
+### Виправлено
 
-- Cancellation of running jobs relied on a channel that was only being received when in the job fetch routine, meaning that jobs which were cancelled would not be cancelled until the next scheduled fetch. This was fixed by also receiving from the job cancellation channel when in the main producer loop, even if no fetches are happening. [PR #678](https://github.com/riverqueue/river/pull/678).
-- Job insert middleware were not being utilized for periodic jobs. This insertion path has been refactored to rely on the unified insertion path from the client. Fixes #675. [PR #679](https://github.com/riverqueue/river/pull/679).
+- Скасування задач, що виконуються, покладалося на канал, з якого читали лише в процедурі вибірки задач, тож скасовані задачі фактично скасовувалися лише під час наступної запланованої вибірки. Це виправлено: тепер із каналу скасування задач читають також в основному циклі продюсера, навіть коли вибірки не відбуваються. [PR #678](https://github.com/riverqueue/river/pull/678).
+- Middleware для додавання задач не застосовувалися до періодичних задач. Цей шлях додавання перероблено так, щоб він спирався на уніфікований шлях додавання клієнта. Виправляє #675. [PR #679](https://github.com/riverqueue/river/pull/679).
 
 ## [0.14.1] - 2024-11-04
 
-### Fixed
+### Виправлено
 
-- In [PR #663](https://github.com/riverqueue/river/pull/663) the client was changed to be more aggressive about re-fetching when it had previously fetched a full batch. Unfortunately a clause was missed, which resulted in the client being more aggressive any time even a single job was fetched on the previous attempt. This was corrected with a conditional to ensure it only happens when the last fetch was full. [PR #668](https://github.com/riverqueue/river/pull/668).
+- У [PR #663](https://github.com/riverqueue/river/pull/663) клієнт змінили так, щоб він агресивніше виконував повторну вибірку, якщо попередня вибірка повернула повний пакет. На жаль, одну умову було пропущено, через що клієнт поводився агресивніше щоразу, коли попередня спроба вибрала хоча б одну задачу. Це виправлено додатковою умовою, яка гарантує, що так відбувається лише тоді, коли остання вибірка була повною. [PR #668](https://github.com/riverqueue/river/pull/668).
 
 ## [0.14.0] - 2024-11-03
 
-### Added
+### Додано
 
-- Expose `JobCancelError` and `JobSnoozeError` types to more easily facilitate testing. [PR #665](https://github.com/riverqueue/river/pull/665).
+- Типи `JobCancelError` і `JobSnoozeError` тепер експортовано, щоб спростити тестування. [PR #665](https://github.com/riverqueue/river/pull/665).
 
-### Changed
+### Змінено
 
-- Tune the client to be more aggressive about fetching when it just fetched a full batch of jobs, or when it skipped its previous triggered fetch because it was already full. This should bring more consistent throughput to poll-only mode and in cases where there is a backlog of existing jobs but new ones aren't being actively inserted. This will result in increased fetch load on many installations, with the benefit of increased throughput. As before, `FetchCooldown` still limits how frequently these fetches can occur on each client and can be increased to reduce the amount of fetch querying. Thanks Chris Gaffney ([@gaffneyc](https://github.com/gaffneyc)) for the idea, initial implementation, and benchmarks. [PR #663](https://github.com/riverqueue/river/pull/663).
+- Клієнт налаштовано агресивніше виконувати вибірку, якщо він щойно вибрав повний пакет задач або якщо пропустив попередню ініційовану вибірку, бо вже був заповнений. Це має забезпечити стабільнішу пропускну здатність у режимі лише опитування, а також у випадках, коли є накопичені задачі, але нові активно не додаються. На багатьох інсталяціях це збільшить навантаження від вибірки, натомість зросте пропускна здатність. Як і раніше, `FetchCooldown` обмежує, як часто ці вибірки можуть відбуватися на кожному клієнті, і його можна збільшити, щоб зменшити кількість запитів вибірки. Дякуємо Chris Gaffney ([@gaffneyc](https://github.com/gaffneyc)) за ідею, початкову реалізацію та бенчмарки. [PR #663](https://github.com/riverqueue/river/pull/663).
 
-### Fixed
+### Виправлено
 
-- `riverpgxv5` driver: `Hijack()` the underlying listener connection as soon as it is acquired from the `pgxpool.Pool` in order to prevent the pool from automatically closing it after it reaches its max age. A max lifetime makes sense in the context of a pool with many conns, but a long-lived listener does not need a max lifetime as long as it can ensure the conn remains healthy. [PR #661](https://github.com/riverqueue/river/pull/661).
+- Драйвер `riverpgxv5`: базове з'єднання слухача тепер перехоплюється через `Hijack()` одразу після отримання з `pgxpool.Pool`, щоб пул не закривав його автоматично після досягнення максимального віку. Максимальний час життя має сенс для пулу з багатьма з'єднаннями, але довготривалому слухачу він не потрібен, якщо слухач може гарантувати, що з'єднання залишається справним. [PR #661](https://github.com/riverqueue/river/pull/661).
 
 ## [0.13.0] - 2024-10-07
 
-⚠️ Version 0.13.0 removes the original advisory lock based unique jobs implementation that was deprecated in v0.12.0. See details in the note below or the v0.12.0 release notes.
+⚠️ Версія 0.13.0 вилучає початкову реалізацію унікальних задач на основі рекомендаційних блокувань (advisory locks), яку було оголошено застарілою у v0.12.0. Подробиці див. у примітці нижче або в примітках до випуску v0.12.0.
 
-### Added
+### Додано
 
-- A middleware system was added for job insertion and execution, providing the ability to extract shared functionality across workers. Both `JobInsertMiddleware` and `WorkerMiddleware` can be configured globally on the `Client`, and `WorkerMiddleware` can also be added on a per-worker basis using the new `Middleware` method on `Worker[T]`. Middleware can be useful for logging, telemetry, or for building higher level abstractions on top of base River functionality.
+- Додано систему middleware для додавання та виконання задач, яка дає змогу виносити спільну функціональність воркерів. І `JobInsertMiddleware`, і `WorkerMiddleware` можна налаштувати глобально в `Client`, а `WorkerMiddleware` також можна додавати для окремих воркерів за допомогою нового методу `Middleware` у `Worker[T]`. Middleware можуть бути корисними для логування, телеметрії або для побудови абстракцій вищого рівня поверх базової функціональності River.
 
-  Despite the interface expansion, users should not encounter any breakage if they're embedding the `WorkerDefaults` type in their workers as recommended. [PR #632](https://github.com/riverqueue/river/pull/632).
+  Попри розширення інтерфейсу, у користувачів нічого не має зламатися, якщо вони вбудовують тип `WorkerDefaults` у свої воркери, як рекомендовано. [PR #632](https://github.com/riverqueue/river/pull/632).
 
-### Changed
+### Змінено
 
-- **Breaking change:** The advisory lock unique jobs implementation which was deprecated in v0.12.0 has been removed. Users of that feature should first upgrade to v0.12.1 to ensure they don't see any warning logs about using the deprecated advisory lock uniqueness. The new, faster unique implementation will be used automatically as long as the `UniqueOpts.ByState` list hasn't been customized to remove [required states](https://riverqueue.com/docs/unique-jobs#unique-by-state) (`pending`, `scheduled`, `available`, and `running`). As of this release, customizing `ByState` without these required states returns an error. [PR #614](https://github.com/riverqueue/river/pull/614).
-- Single job inserts are now unified under the hood to use the `InsertMany` bulk insert query. This should not be noticeable to users, and the unified code path will make it easier to build new features going forward. [PR #614](https://github.com/riverqueue/river/pull/614).
+- **Несумісна зміна:** Вилучено реалізацію унікальних задач на основі рекомендаційних блокувань, яку було оголошено застарілою у v0.12.0. Користувачам цієї функції слід спершу оновитися до v0.12.1 і переконатися, що в логах немає попереджень про використання застарілої унікальності на основі рекомендаційних блокувань. Нова, швидша реалізація унікальності використовуватиметься автоматично, якщо список `UniqueOpts.ByState` не змінено так, щоб вилучити з нього [обов'язкові стани](https://riverqueue.com/docs/unique-jobs#unique-by-state) (`pending`, `scheduled`, `available` і `running`). Починаючи з цього випуску, налаштування `ByState` без цих обов'язкових станів повертає помилку. [PR #614](https://github.com/riverqueue/river/pull/614).
+- Додавання окремих задач тепер під капотом уніфіковано: воно використовує запит масової вставки `InsertMany`. Для користувачів це не має бути помітно, а уніфікований шлях коду спростить розробку нових функцій надалі. [PR #614](https://github.com/riverqueue/river/pull/614).
 
-### Fixed
+### Виправлено
 
-- Allow `river.JobCancel` to accept a `nil` error as input without panicking. [PR #634](https://github.com/riverqueue/river/pull/634).
+- `river.JobCancel` тепер приймає на вході помилку `nil` без паніки. [PR #634](https://github.com/riverqueue/river/pull/634).
 
 ## [0.12.1] - 2024-09-26
 
-### Changed
+### Змінено
 
-- The `BatchCompleter` that marks jobs as completed can now batch database updates for _all_ states of jobs that have finished execution. Prior to this change, only `completed` jobs were batched into a single `UPDATE` call, while jobs moving to any other state used a single `UPDATE` per job. This change should significantly reduce database and pool contention on high volume system when jobs get retried, snoozed, cancelled, or discarded following execution. [PR #617](https://github.com/riverqueue/river/pull/617).
+- `BatchCompleter`, який позначає задачі як завершені, тепер може групувати оновлення бази даних для _всіх_ станів задач, що завершили виконання. До цієї зміни в один виклик `UPDATE` групувалися лише задачі `completed`, тоді як для задач, що переходили в будь-який інший стан, виконувався окремий `UPDATE` на кожну задачу. Ця зміна має суттєво зменшити конкуренцію за базу даних і пул у високонавантажених системах, коли задачі після виконання повторюються, відкладаються, скасовуються або відкидаються. [PR #617](https://github.com/riverqueue/river/pull/617).
 
-### Fixed
+### Виправлено
 
-- Unique job changes from v0.12.0 / [PR #590](https://github.com/riverqueue/river/pull/590) introduced a bug with scheduled or retryable unique jobs where they could be considered in conflict with themselves and moved to `discarded` by mistake. There was also a possibility of a broken job scheduler if duplicate `retryable` unique jobs were attempted to be scheduled at the same time. The job scheduling query was corrected to address these issues along with missing test coverage. [PR #619](https://github.com/riverqueue/river/pull/619).
+- Зміни унікальних задач із v0.12.0 / [PR #590](https://github.com/riverqueue/river/pull/590) внесли помилку для унікальних задач, які заплановані або очікують повторної спроби: їх могли вважати такими, що конфліктують самі із собою, і помилково переміщувати в `discarded`. Також існувала можливість поломки планувальника задач, якщо одночасно намагалися запланувати дублікати унікальних задач у стані `retryable`. Запит планування задач виправлено, щоб усунути ці проблеми, а також додано відсутнє тестове покриття. [PR #619](https://github.com/riverqueue/river/pull/619).
 
 ## [0.12.0] - 2024-09-23
 
-⚠️ Version 0.12.0 contains a new database migration, version 6. See [documentation on running River migrations](https://riverqueue.com/docs/migrations). If migrating with the CLI, make sure to update it to its latest version:
+⚠️ Версія 0.12.0 містить нову міграцію бази даних, версії 6. Див. [документацію щодо запуску міграцій River](https://riverqueue.com/docs/migrations). Якщо ви виконуєте міграцію через CLI, обов'язково оновіть його до останньої версії:
 
 ```shell
 go install github.com/riverqueue/river/cmd/river@latest
 river migrate-up --database-url "$DATABASE_URL"
 ```
 
-If not using River's internal migration system, the raw SQL can alternatively be dumped with:
+Якщо ви не використовуєте внутрішню систему міграцій River, сирий SQL можна натомість вивантажити так:
 
 ```shell
 go install github.com/riverqueue/river/cmd/river@latest
@@ -759,7 +759,7 @@ river migrate-get --version 6 --up > river6.up.sql
 river migrate-get --version 6 --down > river6.down.sql
 ```
 
-The migration **includes a new index**. Users with a very large job table may want to consider raising the index separately using `CONCURRENTLY` (which must be run outside of a transaction), then run `river migrate-up` to finalize the process (it will tolerate an index that already exists):
+Міграція **містить новий індекс**. Користувачам із дуже великою таблицею задач варто розглянути можливість створити індекс окремо з `CONCURRENTLY` (це потрібно виконувати поза транзакцією), а потім запустити `river migrate-up`, щоб завершити процес (команда допускає, що індекс уже існує):
 
 ```sql
 ALTER TABLE river_job ADD COLUMN unique_states BIT(8);
@@ -775,22 +775,22 @@ go install github.com/riverqueue/river/cmd/river@latest
 river migrate-up --database-url "$DATABASE_URL"
 ```
 
-## Added
+## Додано
 
-- `rivertest.WorkContext`, a test function that can be used to initialize a context to test a `JobArgs.Work` implementation that will have a client set to context for use with `river.ClientFromContext`. [PR #526](https://github.com/riverqueue/river/pull/526).
-- A new `river migrate-list` command is available which lists available migrations and which version a target database is migrated to. [PR #534](https://github.com/riverqueue/river/pull/534).
-- `river version` or `river --version` now prints River version information. [PR #537](https://github.com/riverqueue/river/pull/537).
-- `Config.JobCleanerTimeout` was added to allow configuration of the job cleaner query timeout. In some deployments with millions of stale jobs, the cleaner may not be able to complete its query within the default 30 seconds. [PR #576](https://github.com/riverqueue/river/pull/576).
+- `rivertest.WorkContext` — тестова функція, за допомогою якої можна ініціалізувати контекст для тестування реалізації `JobArgs.Work`; у цьому контексті буде встановлено клієнт для використання з `river.ClientFromContext`. [PR #526](https://github.com/riverqueue/river/pull/526).
+- Доступна нова команда `river migrate-list`, яка показує список доступних міграцій і версію, до якої мігровано цільову базу даних. [PR #534](https://github.com/riverqueue/river/pull/534).
+- `river version` або `river --version` тепер виводить інформацію про версію River. [PR #537](https://github.com/riverqueue/river/pull/537).
+- Додано `Config.JobCleanerTimeout`, щоб можна було налаштувати тайм-аут запиту очищувача задач. У деяких розгортаннях із мільйонами старих задач очищувач може не встигати завершити свій запит за типові 30 секунд. [PR #576](https://github.com/riverqueue/river/pull/576).
 
-### Changed
+### Змінено
 
-⚠️ Version 0.12.0 has two small breaking changes, one for `InsertMany` and one in `rivermigrate`. As before, we try never to make breaking changes, but these ones were deemed worth it because of minimal impact and to help avoid panics.
+⚠️ Версія 0.12.0 містить дві невеликі несумісні зміни: одну для `InsertMany` і одну в `rivermigrate`. Як і раніше, ми намагаємося ніколи не вносити несумісних змін, але ці було визнано виправданими через мінімальний вплив і щоб допомогти уникнути панік.
 
-- **Breaking change:** `Client.InsertMany` / `InsertManyTx` now return the inserted rows rather than merely returning a count of the inserted rows. The new implementations no longer use Postgres' `COPY FROM` protocol in order to facilitate return values.
+- **Несумісна зміна:** `Client.InsertMany` / `InsertManyTx` тепер повертають додані рядки, а не лише кількість доданих рядків. Щоб уможливити повернення значень, нові реалізації більше не використовують протокол Postgres `COPY FROM`.
 
-  Users who relied on the return count can merely wrap the returned rows in a `len()` to return to that behavior, or you can continue using the old APIs using their new names `InsertManyFast` and `InsertManyFastTx`. [PR #589](https://github.com/riverqueue/river/pull/589).
+  Користувачі, які покладалися на повернену кількість, можуть просто обгорнути повернені рядки в `len()`, щоб повернутися до попередньої поведінки, або продовжити використовувати старі API під новими назвами `InsertManyFast` і `InsertManyFastTx`. [PR #589](https://github.com/riverqueue/river/pull/589).
 
-- **Breaking change:** `rivermigrate.New` now returns a possible error along with a migrator. An error may be returned, for example, when a migration line is configured that doesn't exist. [PR #558](https://github.com/riverqueue/river/pull/558).
+- **Несумісна зміна:** `rivermigrate.New` тепер разом із мігратором повертає можливу помилку. Помилку може бути повернено, наприклад, коли налаштовано лінію міграцій, якої не існує. [PR #558](https://github.com/riverqueue/river/pull/558).
 
   ```go
   # before
@@ -803,9 +803,9 @@ river migrate-up --database-url "$DATABASE_URL"
   }
   ```
 
-- Unique jobs have been improved to allow bulk insertion of unique jobs via `InsertMany` / `InsertManyTx`, and to allow customizing the `ByState` list to add or remove certain states. This enables users to expand the set of unique states to also include `cancelled` and `discarded` jobs, or to remove `retryable` from uniqueness consideration. This updated implementation maintains the speed advantage of the newer index-backed uniqueness system, while allowing some flexibility in which job states.
+- Унікальні задачі вдосконалено: тепер їх можна масово додавати через `InsertMany` / `InsertManyTx`, а список `ByState` можна налаштовувати, додаючи або вилучаючи певні стани. Це дає змогу розширити набір унікальних станів, включивши також задачі `cancelled` і `discarded`, або виключити `retryable` з урахування унікальності. Оновлена реалізація зберігає перевагу у швидкості новішої системи унікальності на основі індексу й водночас дає певну гнучкість щодо станів задач.
 
-  Unique jobs utilizing `ByArgs` can now also opt to have a subset of the job's arguments considered for uniqueness. For example, you could choose to consider only the `customer_id` field while ignoring the `trace_id` field:
+  Унікальні задачі, що використовують `ByArgs`, тепер також можуть враховувати для унікальності лише підмножину аргументів задачі. Наприклад, можна враховувати тільки поле `customer_id`, ігноруючи поле `trace_id`:
 
   ```go
   type MyJobArgs {
@@ -814,87 +814,87 @@ river migrate-up --database-url "$DATABASE_URL"
   }
   ```
 
-  Any fields considered in uniqueness are also sorted alphabetically in order to guarantee a consistent result, even if the encoded JSON isn't sorted consistently. For example `encoding/json` encodes struct fields in their defined order, so merely reordering struct fields would previously have been enough to cause a new job to not be considered identical to a pre-existing one with different JSON order.
+  Усі поля, що враховуються для унікальності, також сортуються за алфавітом, щоб гарантувати узгоджений результат, навіть якщо закодований JSON відсортовано непослідовно. Наприклад, `encoding/json` кодує поля структури в порядку їх оголошення, тож раніше простої зміни порядку полів структури було б достатньо, щоб нову задачу не вважали ідентичною наявній задачі з іншим порядком у JSON.
 
-  The `UniqueOpts` type also gains an `ExcludeKind` option for cases where uniqueness needs to be guaranteed across multiple job types.
+  Тип `UniqueOpts` також отримав опцію `ExcludeKind` для випадків, коли унікальність потрібно гарантувати для кількох типів задач.
 
-  In-flight unique jobs using the previous designs will continue to be executed successfully with these changes, so there should be no need for downtime as part of the migration. However the v6 migration adds a new unique job index while also removing the old one, so users with in-flight unique jobs may also wish to avoid removing the old index until the new River release has been deployed in order to guarantee that jobs aren't duplicated by old River code once that index is removed.
+  Унікальні задачі в обробці, що використовують попередні реалізації, і далі успішно виконуватимуться після цих змін, тож простою під час міграції не має знадобитися. Однак міграція v6 додає новий індекс унікальних задач і водночас вилучає старий, тому користувачі з унікальними задачами в обробці можуть також захотіти не вилучати старий індекс, доки не буде розгорнуто новий випуск River, щоб гарантувати, що після вилучення цього індексу старий код River не дублюватиме задачі.
 
-  **Deprecated**: The original unique jobs implementation which relied on advisory locks has been deprecated, but not yet removed. The only way to trigger this old code path is with a single insert (`Insert`/`InsertTx`) and using `UniqueOpts.ByState` with a custom list of states that omits some of the now-required states for unique jobs. Specifically, `pending`, `scheduled`, `available`, and `running` can not be removed from the `ByState` list with the new implementation. These are included in the default list so only the places which customize this attribute need to be updated to opt into the new (much faster) unique jobs. The advisory lock unique implementation will be removed in an upcoming release, and until then emits warning level logs when it's used.
+  **Застаріле**: Початкову реалізацію унікальних задач, яка покладалася на рекомендаційні блокування, оголошено застарілою, але ще не вилучено. Цей старий шлях коду можна задіяти лише одиночним додаванням (`Insert`/`InsertTx`) з використанням `UniqueOpts.ByState` із власним списком станів, у якому бракує деяких станів, тепер обов'язкових для унікальних задач. Зокрема, у новій реалізації не можна вилучати зі списку `ByState` стани `pending`, `scheduled`, `available` і `running`. Вони входять до типового списку, тож оновити потрібно лише ті місця, де цей атрибут налаштовано, щоб перейти на нові (значно швидші) унікальні задачі. Реалізацію унікальності на основі рекомендаційних блокувань буде вилучено в одному з наступних випусків, а доти під час її використання вона пише в лог попередження рівня warning.
 
   [PR #590](https://github.com/riverqueue/river/pull/590).
 
-- **Deprecated**: The `MigrateTx` method of `rivermigrate` has been deprecated. It turns out there are certain combinations of schema changes which cannot be run within a single transaction, and the migrator now prefers to run each migration in its own transaction, one-at-a-time. `MigrateTx` will be removed in future version.
+- **Застаріле**: Метод `MigrateTx` з `rivermigrate` оголошено застарілим. Виявилося, що деякі комбінації змін схеми неможливо виконати в межах однієї транзакції, тому мігратор тепер віддає перевагу виконанню кожної міграції в окремій транзакції, по одній. `MigrateTx` буде вилучено в майбутній версії.
 
-- The migrator now produces a better error in case of a non-existent migration line including suggestions for known migration lines that are similar in name to the invalid one. [PR #558](https://github.com/riverqueue/river/pull/558).
+- Мігратор тепер видає зрозумілішу помилку в разі неіснуючої лінії міграцій, включно з пропозиціями відомих ліній міграцій, назви яких схожі на неправильну. [PR #558](https://github.com/riverqueue/river/pull/558).
 
-## Fixed
+## Виправлено
 
-- Fixed a panic that'd occur if `StopAndCancel` was invoked before a client was started. [PR #557](https://github.com/riverqueue/river/pull/557).
-- A `PeriodicJobConstructor` should be able to return `nil` `JobArgs` if it wishes to not have any job inserted. However, this was either never working or was broken at some point. It's now fixed. Thanks [@semanser](https://github.com/semanser)! [PR #572](https://github.com/riverqueue/river/pull/572).
-- Fixed a nil pointer exception if `Client.Subscribe` was called when the client had no configured workers (it still, panics with a more instructive error message now). [PR #599](https://github.com/riverqueue/river/pull/599).
+- Виправлено паніку, яка виникала, якщо `StopAndCancel` викликали до запуску клієнта. [PR #557](https://github.com/riverqueue/river/pull/557).
+- `PeriodicJobConstructor` повинен мати змогу повертати `nil` `JobArgs`, якщо жодну задачу додавати не потрібно. Однак це або ніколи не працювало, або в якийсь момент зламалося. Тепер це виправлено. Дякуємо [@semanser](https://github.com/semanser)! [PR #572](https://github.com/riverqueue/river/pull/572).
+- Виправлено помилку розіменування nil-вказівника, що виникала, якщо `Client.Subscribe` викликали, коли в клієнта не було налаштованих воркерів (виклик і далі завершується панікою, але тепер із інформативнішим повідомленням про помилку). [PR #599](https://github.com/riverqueue/river/pull/599).
 
 ## [0.11.4] - 2024-08-20
 
-### Fixed
+### Виправлено
 
-- Fixed release script that caused CLI to become uninstallable because its reference to `rivershared` wasn't updated. [PR #541](https://github.com/riverqueue/river/pull/541).
+- Виправлено скрипт випуску, через який CLI неможливо було встановити, оскільки посилання CLI на `rivershared` не було оновлено. [PR #541](https://github.com/riverqueue/river/pull/541).
 
 ## [0.11.3] - 2024-08-19
 
-### Changed
+### Змінено
 
-- Producer's logs are quieter unless jobs are actively being worked. [PR #529](https://github.com/riverqueue/river/pull/529).
+- Логи продюсера тепер менш шумні, якщо задачі активно не обробляються. [PR #529](https://github.com/riverqueue/river/pull/529).
 
-### Fixed
+### Виправлено
 
-- River CLI now accepts `postgresql://` URL schemes in addition to `postgres://`. [PR #532](https://github.com/riverqueue/river/pull/532).
+- River CLI тепер приймає схему URL `postgresql://` на додачу до `postgres://`. [PR #532](https://github.com/riverqueue/river/pull/532).
 
 ## [0.11.2] - 2024-08-08
 
-### Fixed
+### Виправлено
 
-- Derive all internal contexts from user-provided `Client` context. This includes the job fetch context, notifier unlisten, and completer. [PR #514](https://github.com/riverqueue/river/pull/514).
-- Lowered the `go` directives in `go.mod` to Go 1.21, which River aims to support. A more modern version of Go is specified with the `toolchain` directive. This should provide more flexibility on the minimum required Go version for programs importing River. [PR #522](https://github.com/riverqueue/river/pull/522).
+- Усі внутрішні контексти тепер похідні від наданого користувачем контексту `Client`. Це стосується контексту вибірки задач, припинення прослуховування в сповіщувачі та комплітера. [PR #514](https://github.com/riverqueue/river/pull/514).
+- Директиви `go` у `go.mod` знижено до Go 1.21, яку River прагне підтримувати. Сучаснішу версію Go вказано директивою `toolchain`. Це має дати більше гнучкості щодо мінімальної потрібної версії Go для програм, які імпортують River. [PR #522](https://github.com/riverqueue/river/pull/522).
 
 ## [0.11.1] - 2024-08-05
 
-### Fixed
+### Виправлено
 
-- `database/sql` driver: fix default value of `scheduled_at` for `InsertManyTx` when it is not specified in `InsertOpts`. [PR #504](https://github.com/riverqueue/river/pull/504).
-- Change `ColumnExists` query to respect `search_path`, thereby allowing migrations to be runnable outside of default schema. [PR #505](https://github.com/riverqueue/river/pull/505).
+- Драйвер `database/sql`: виправлено типове значення `scheduled_at` для `InsertManyTx`, коли його не вказано в `InsertOpts`. [PR #504](https://github.com/riverqueue/river/pull/504).
+- Запит `ColumnExists` тепер враховує `search_path`, що дає змогу виконувати міграції поза типовою схемою. [PR #505](https://github.com/riverqueue/river/pull/505).
 
 ## [0.11.0] - 2024-08-02
 
-### Added
+### Додано
 
-- Expose `Driver` on `Client` for additional River Pro integrations. This is not a stable API and should generally not be used by others. [PR #497](https://github.com/riverqueue/river/pull/497).
+- `Driver` тепер доступний у `Client` для додаткових інтеграцій River Pro. Це не стабільний API, і іншим, як правило, не слід ним користуватися. [PR #497](https://github.com/riverqueue/river/pull/497).
 
 ## [0.10.2] - 2024-07-31
 
-### Fixed
+### Виправлено
 
-- Include `pending` state in `JobListParams` by default so pending jobs are included in `JobList` / `JobListTx` results. [PR #477](https://github.com/riverqueue/river/pull/477).
-- Quote strings when using `Client.JobList` functions with the `database/sql` driver. [PR #481](https://github.com/riverqueue/river/pull/481).
-- Remove use of `filepath` for interacting with embedded migration files, fixing the migration CLI for Windows. [PR #485](https://github.com/riverqueue/river/pull/485).
-- Respect `ScheduledAt` if set to a non-zero value by `JobArgsWithInsertOpts`. This allows for job arg definitions to utilize custom logic at the args level for determining when the job should be scheduled. [PR #487](https://github.com/riverqueue/river/pull/487).
+- Стан `pending` тепер за замовчуванням включено в `JobListParams`, тож задачі в стані очікування потрапляють у результати `JobList` / `JobListTx`. [PR #477](https://github.com/riverqueue/river/pull/477).
+- Рядки тепер беруться в лапки під час використання функцій `Client.JobList` з драйвером `database/sql`. [PR #481](https://github.com/riverqueue/river/pull/481).
+- Вилучено використання `filepath` для роботи з вбудованими файлами міграцій, що виправляє CLI міграцій для Windows. [PR #485](https://github.com/riverqueue/river/pull/485).
+- Тепер враховується `ScheduledAt`, якщо `JobArgsWithInsertOpts` встановлює для нього ненульове значення. Це дає змогу визначенням аргументів задач використовувати власну логіку на рівні аргументів, щоб визначати, на коли слід запланувати задачу. [PR #487](https://github.com/riverqueue/river/pull/487).
 
 ## [0.10.1] - 2024-07-23
 
-### Fixed
+### Виправлено
 
-- Migration version 005 has been altered so that it can run even if the `river_migration` table isn't present, making it more friendly for projects that aren't using River's internal migration system. [PR #465](https://github.com/riverqueue/river/pull/465).
+- Міграцію версії 005 змінено так, щоб вона могла виконуватися навіть за відсутності таблиці `river_migration`, що робить її зручнішою для проєктів, які не використовують внутрішню систему міграцій River. [PR #465](https://github.com/riverqueue/river/pull/465).
 
 ## [0.10.0] - 2024-07-19
 
-⚠️ Version 0.10.0 contains a new database migration, version 5. See [documentation on running River migrations](https://riverqueue.com/docs/migrations). If migrating with the CLI, make sure to update it to its latest version:
+⚠️ Версія 0.10.0 містить нову міграцію бази даних, версії 5. Див. [документацію щодо запуску міграцій River](https://riverqueue.com/docs/migrations). Якщо ви виконуєте міграцію через CLI, обов'язково оновіть його до останньої версії:
 
 ```shell
 go install github.com/riverqueue/river/cmd/river@latest
 river migrate-up --database-url "$DATABASE_URL"
 ```
 
-If not using River's internal migration system, the raw SQL can alternatively be dumped with:
+Якщо ви не використовуєте вбудовану систему міграцій River, сирий SQL можна натомість вивантажити так:
 
 ```shell
 go install github.com/riverqueue/river/cmd/river@latest
@@ -902,7 +902,7 @@ river migrate-get --version 5 --up > river5.up.sql
 river migrate-get --version 5 --down > river5.down.sql
 ```
 
-The migration **includes a new index**. Users with a very large job table may want to consider raising the index separately using `CONCURRENTLY` (which must be run outside of a transaction), then run `river migrate-up` to finalize the process (it will tolerate an index that already exists):
+Міграція **містить новий індекс**. Користувачам із дуже великою таблицею задач варто розглянути можливість створити індекс окремо з `CONCURRENTLY` (це потрібно виконувати поза транзакцією), а потім запустити `river migrate-up`, щоб завершити процес (вона допускає вже наявний індекс):
 
 ```sql
 ALTER TABLE river_job
@@ -916,30 +916,30 @@ go install github.com/riverqueue/river/cmd/river@latest
 river migrate-up --database-url "$DATABASE_URL"
 ```
 
-### Added
+### Додано
 
-- Fully functional driver for `database/sql` for use with packages like Bun and GORM. [PR #351](https://github.com/riverqueue/river/pull/351).
-- Queues can be added after a client is initialized using `client.Queues().Add(queueName string, queueConfig QueueConfig)`. [PR #410](https://github.com/riverqueue/river/pull/410).
-- Migration that adds a `line` column to the `river_migration` table so that it can support multiple migration lines. [PR #435](https://github.com/riverqueue/river/pull/435).
-- `--line` flag added to the River CLI. [PR #454](https://github.com/riverqueue/river/pull/454).
+- Повнофункціональний драйвер для `database/sql` для використання з пакетами на кшталт Bun і GORM. [PR #351](https://github.com/riverqueue/river/pull/351).
+- Черги можна додавати після ініціалізації клієнта за допомогою `client.Queues().Add(queueName string, queueConfig QueueConfig)`. [PR #410](https://github.com/riverqueue/river/pull/410).
+- Міграція, що додає стовпець `line` до таблиці `river_migration`, щоб вона могла підтримувати кілька ліній міграцій. [PR #435](https://github.com/riverqueue/river/pull/435).
+- До River CLI додано прапорець `--line`. [PR #454](https://github.com/riverqueue/river/pull/454).
 
-### Changed
+### Змінено
 
-- Tags are now limited to 255 characters in length, and should match the regex `\A[\w][\w\-]+[\w]\z` (importantly, they can't contain commas). [PR #351](https://github.com/riverqueue/river/pull/351).
-- Many info logging statements have been demoted to debug level. [PR #452](https://github.com/riverqueue/river/pull/452).
-- `pending` is now part of the default set of unique job states. [PR #461](https://github.com/riverqueue/river/pull/461).
+- Довжину тегів тепер обмежено 255 символами, і вони мають відповідати регулярному виразу `\A[\w][\w\-]+[\w]\z` (важливо: вони не можуть містити ком). [PR #351](https://github.com/riverqueue/river/pull/351).
+- Багато записів журналу рівня info понижено до рівня debug. [PR #452](https://github.com/riverqueue/river/pull/452).
+- `pending` тепер входить до типового набору станів унікальних задач. [PR #461](https://github.com/riverqueue/river/pull/461).
 
 ## [0.9.0] - 2024-07-04
 
-### Added
+### Додано
 
-- `Config.TestOnly` has been added. It disables various features in the River client like staggered maintenance service start that are useful in production, but may be somewhat harmful in tests because they make start/stop slower. [PR #414](https://github.com/riverqueue/river/pull/414).
+- Додано `Config.TestOnly`. Ця опція вимикає в клієнті River різні можливості, як-от поетапний запуск сервісів обслуговування, які корисні в продакшені, але можуть дещо шкодити в тестах, бо сповільнюють запуск/зупинку. [PR #414](https://github.com/riverqueue/river/pull/414).
 
-### Changed
+### Змінено
 
-⚠️ Version 0.9.0 has a small breaking change in `ErrorHandler`. As before, we try never to make breaking changes, but this one was deemed quite important because `ErrorHandler` was fundamentally lacking important functionality.
+⚠️ Версія 0.9.0 містить невелику несумісну зміну в `ErrorHandler`. Як і раніше, ми намагаємося ніколи не вносити несумісних змін, але цю визнали досить важливою, бо в `ErrorHandler` принципово бракувало важливої функціональності.
 
-- **Breaking change:** Add stack trace to `ErrorHandler.HandlePanicFunc`. Fixing code only requires adding a new `trace string` argument to `HandlePanicFunc`. [PR #423](https://github.com/riverqueue/river/pull/423).
+- **Несумісна зміна:** до `ErrorHandler.HandlePanicFunc` додано трасування стека. Щоб виправити код, достатньо додати новий аргумент `trace string` до `HandlePanicFunc`. [PR #423](https://github.com/riverqueue/river/pull/423).
 
   ```go
   # before
@@ -949,359 +949,359 @@ river migrate-up --database-url "$DATABASE_URL"
   HandlePanic(ctx context.Context, job *rivertype.JobRow, panicVal any, trace string) *ErrorHandlerResult
   ```
 
-### Fixed
+### Виправлено
 
-- Pausing or resuming a queue that was already paused or not paused respectively no longer returns `rivertype.ErrNotFound`. The same goes for pausing or resuming using the all queues string (`*`) when no queues are in the database (previously that also returned `rivertype.ErrNotFound`). [PR #408](https://github.com/riverqueue/river/pull/408).
-- Fix a bug where periodic job constructors were only called once when adding the periodic job rather than being invoked every time the periodic job is scheduled. [PR #420](https://github.com/riverqueue/river/pull/420).
+- Призупинення вже призупиненої черги або відновлення непризупиненої черги більше не повертає `rivertype.ErrNotFound`. Те саме стосується призупинення або відновлення з використанням рядка для всіх черг (`*`), коли в базі даних немає жодної черги (раніше це також повертало `rivertype.ErrNotFound`). [PR #408](https://github.com/riverqueue/river/pull/408).
+- Виправлено помилку, через яку конструктори періодичних задач викликалися лише один раз під час додавання періодичної задачі, а не щоразу, коли періодична задача планується. [PR #420](https://github.com/riverqueue/river/pull/420).
 
 ## [0.8.0] - 2024-06-25
 
-### Added
+### Додано
 
-- Add transaction variants for queue-related client functions: `QueueGetTx`, `QueueListTx`, `QueuePauseTx`, and `QueueResumeTx`. [PR #402](https://github.com/riverqueue/river/pull/402).
+- Додано транзакційні варіанти функцій клієнта для роботи з чергами: `QueueGetTx`, `QueueListTx`, `QueuePauseTx` і `QueueResumeTx`. [PR #402](https://github.com/riverqueue/river/pull/402).
 
-### Fixed
+### Виправлено
 
-- Fix possible Client shutdown panics if the user-provided context is cancelled while jobs are still running. [PR #401](https://github.com/riverqueue/river/pull/401).
+- Виправлено можливі паніки під час зупинки Client, якщо наданий користувачем контекст скасовується, поки задачі ще виконуються. [PR #401](https://github.com/riverqueue/river/pull/401).
 
 ## [0.7.0] - 2024-06-13
 
-### Added
+### Додано
 
-- The default max attempts of 25 can now be customized on a per-client basis using `Config.MaxAttempts`. This is in addition to the ability to customize at the job type level with `JobArgs`, or on a per-job basis using `InsertOpts`. [PR #383](https://github.com/riverqueue/river/pull/383).
-- Add `JobDelete` / `JobDeleteTx` APIs on `Client` to allow permanently deleting any job that's not currently running. [PR #390](https://github.com/riverqueue/river/pull/390).
+- Типову максимальну кількість спроб (25) тепер можна налаштовувати для кожного клієнта окремо за допомогою `Config.MaxAttempts`. Це доповнює наявні можливості налаштування на рівні типу задачі через `JobArgs` або для кожної задачі окремо через `InsertOpts`. [PR #383](https://github.com/riverqueue/river/pull/383).
+- Додано API `JobDelete` / `JobDeleteTx` у `Client`, що дають змогу остаточно видалити будь-яку задачу, яка зараз не виконується. [PR #390](https://github.com/riverqueue/river/pull/390).
 
-### Fixed
+### Виправлено
 
-- Fix `StopAndCancel` to not hang if called in parallel to an ongoing `Stop` call. [PR #376](https://github.com/riverqueue/river/pull/376).
+- Виправлено `StopAndCancel`, щоб він не зависав, якщо його викликано паралельно з поточним викликом `Stop`. [PR #376](https://github.com/riverqueue/river/pull/376).
 
 ## [0.6.1] - 2024-05-21
 
-### Fixed
+### Виправлено
 
-- River now considers per-worker timeout overrides when rescuing jobs so that jobs with a long custom timeout won't be rescued prematurely. [PR #350](https://github.com/riverqueue/river/pull/350).
-- River CLI now exits with status 1 in the case of a problem with commands or flags, like an unknown command or missing required flag. [PR #363](https://github.com/riverqueue/river/pull/363).
-- Fix migration version 4 (from 0.5.0) so that the up migration can be re-run after it was originally rolled back. [PR #364](https://github.com/riverqueue/river/pull/364).
+- Під час відновлення задач River тепер враховує перевизначення тайм-ауту на рівні окремого воркера, тож задачі з довгим власним тайм-аутом не відновлюватимуться передчасно. [PR #350](https://github.com/riverqueue/river/pull/350).
+- River CLI тепер завершується зі статусом 1 у разі проблеми з командами чи прапорцями, як-от невідома команда або відсутній обов'язковий прапорець. [PR #363](https://github.com/riverqueue/river/pull/363).
+- Виправлено міграцію версії 4 (з 0.5.0), щоб up-міграцію можна було виконати повторно після того, як її спершу було відкочено. [PR #364](https://github.com/riverqueue/river/pull/364).
 
 ## [0.6.0] - 2024-05-08
 
-### Added
+### Додано
 
-- `RequireNotInserted` test helper (in addition to the existing `RequireInserted`) that verifies that a job with matching conditions was _not_ inserted. [PR #237](https://github.com/riverqueue/river/pull/237).
+- Тестовий хелпер `RequireNotInserted` (на доповнення до наявного `RequireInserted`), який перевіряє, що задачу з відповідними умовами _не_ було додано. [PR #237](https://github.com/riverqueue/river/pull/237).
 
-### Changed
+### Змінено
 
-- The periodic job enqueuer now sets `scheduled_at` of inserted jobs to the more precise time of when they were scheduled to run, as opposed to when they were inserted. [PR #341](https://github.com/riverqueue/river/pull/341).
+- Сервіс постановки періодичних задач у чергу тепер встановлює `scheduled_at` доданих задач на точніший час, на який їх було заплановано до запуску, а не на час їх додавання. [PR #341](https://github.com/riverqueue/river/pull/341).
 
-### Fixed
+### Виправлено
 
-- Remove use of `github.com/lib/pq`, making it once again a test-only dependency. [PR #337](https://github.com/riverqueue/river/pull/337).
+- Вилучено використання `github.com/lib/pq`, тож він знову є залежністю лише для тестів. [PR #337](https://github.com/riverqueue/river/pull/337).
 
 ## [0.5.0] - 2024-05-03
 
-⚠️ Version 0.5.0 contains a new database migration, version 4. This migration is backward compatible with any River installation running the v3 migration. Be sure to run the v4 migration prior to deploying the code from this release.
+⚠️ Версія 0.5.0 містить нову міграцію бази даних, версії 4. Ця міграція зворотно сумісна з будь-якою інсталяцією River, на якій застосовано міграцію v3. Обов'язково виконайте міграцію v4 перед розгортанням коду з цього релізу.
 
-### Added
+### Додано
 
-- Add `pending` job state. This is currently unused, but will be used to build higher level functionality for staging jobs that are not yet ready to run (for some reason other than their scheduled time being in the future). Pending jobs will never be run or deleted and must first be moved to another state by external code. [PR #301](https://github.com/riverqueue/river/pull/301).
-- Queue status tracking, pause and resume. [PR #301](https://github.com/riverqueue/river/pull/301).
+- Додано стан задачі `pending`. Наразі він не використовується, але слугуватиме для побудови функціональності вищого рівня для підготовки задач, які ще не готові до запуску (з якоїсь іншої причини, ніж запланований час у майбутньому). Задачі в стані pending ніколи не запускаються й не видаляються; зовнішній код спершу має перевести їх в інший стан. [PR #301](https://github.com/riverqueue/river/pull/301).
+- Відстеження стану черг, призупинення та відновлення. [PR #301](https://github.com/riverqueue/river/pull/301).
 
-  A useful operational lever is the ability to pause and resume a queue without shutting down clients. In addition to pause/resume being a feature request from [#54](https://github.com/riverqueue/river/pull/54), as part of the work on River's UI it's been useful to list out the active queues so that they can be displayed and manipulated.
+  Корисним операційним важелем є можливість призупиняти й відновлювати чергу без зупинки клієнтів. Окрім того, що призупинення/відновлення просили в [#54](https://github.com/riverqueue/river/pull/54), під час роботи над UI River виявилося корисним мати перелік активних черг, щоб їх можна було відображати й ними керувати.
 
-  A new `river_queue` table is introduced in the v4 migration for this purpose. Upon startup, every producer in each River `Client` will make an `UPSERT` query to the database to either register the queue as being active, or if it already exists it will instead bump the timestamp to keep it active. This query will be run periodically in each producer as long as the `Client` is alive, even if the queue is paused. A separate query will delete/purge any queues which have not been active in awhile (currently fixed to 24 hours).
+  Для цього в міграції v4 з'являється нова таблиця `river_queue`. Під час запуску кожен продюсер у кожному `Client` River виконує запит `UPSERT` до бази даних, щоб або зареєструвати чергу як активну, або, якщо вона вже існує, оновити її мітку часу, щоб вона й далі вважалася активною. Цей запит періодично виконується в кожному продюсері, доки `Client` працює, навіть якщо чергу призупинено. Окремий запит видаляє/очищує всі черги, які певний час не були активними (наразі цей час фіксований — 24 години).
 
-  `QueuePause` and `QueueResume` APIs have been introduced to `Client` pause and resume a single queue by name, or _all_ queues using the special `*` value. Each producer will watch for notifications on the relevant `LISTEN/NOTIFY` topic unless operating in poll-only mode, in which case they will periodically poll for changes to their queue record in the database.
+  До `Client` додано API `QueuePause` і `QueueResume` для призупинення та відновлення окремої черги за назвою або _всіх_ черг за допомогою спеціального значення `*`. Кожен продюсер стежить за сповіщеннями у відповідному топіку `LISTEN/NOTIFY`, якщо тільки не працює в режимі лише опитування, — у такому разі він періодично опитує базу даних на предмет змін у записі своєї черги.
 
-### Changed
+### Змінено
 
-- Job insert notifications are now handled within application code rather than within the database using triggers. [PR #301](https://github.com/riverqueue/river/pull/301).
+- Сповіщення про додавання задач тепер обробляються в коді застосунку, а не в базі даних за допомогою тригерів. [PR #301](https://github.com/riverqueue/river/pull/301).
 
-  The initial design for River utilized a trigger on job insert that issued notifications (`NOTIFY`) so that listening clients could quickly pick up the work if they were idle. While this is good for lowering latency, it does have the side effect of emitting a large amount of notifications any time there are lots of jobs being inserted. This adds overhead, particularly to high-throughput installations.
+  Початковий дизайн River використовував тригер на вставку задачі, який надсилав сповіщення (`NOTIFY`), щоб клієнти-слухачі могли швидко взятися за роботу, якщо простоювали. Хоча це добре знижує затримку, побічним ефектом є велика кількість сповіщень щоразу, коли додається багато задач. Це створює накладні витрати, особливо в інсталяціях із високою пропускною здатністю.
 
-  To improve this situation and reduce overhead in high-throughput installations, the notifications have been refactored to be emitted at the application level. A client-level debouncer ensures that these notifications are not emitted more often than they could be useful. If a queue is due for an insert notification (on a particular Postgres schema), the notification is piggy-backed onto the insert query within the transaction. While this has the impact of increasing insert latency for a certain percentage of cases, the effect should be small.
+  Щоб покращити ситуацію та зменшити накладні витрати в інсталяціях із високою пропускною здатністю, надсилання сповіщень перенесено на рівень застосунку. Дебаунсер на рівні клієнта гарантує, що ці сповіщення не надсилаються частіше, ніж це може бути корисно. Якщо для черги настав час сповіщення про додавання (у певній схемі Postgres), сповіщення приєднується до запиту вставки в межах транзакції. Хоча в певній частці випадків це збільшує затримку додавання, ефект має бути незначним.
 
-  Additionally, initial releases of River did not properly scope notification topics within the global `LISTEN/NOTIFY` namespace. If two River installations were operating on the same Postgres database but within different schemas (search paths), their notifications would be emitted on a shared topic name. This is no longer the case and all notifications are prefixed with a `{schema_name}.` string.
+  Крім того, перші релізи River неналежно обмежували область видимості топіків сповіщень у глобальному просторі імен `LISTEN/NOTIFY`. Якщо дві інсталяції River працювали з однією базою даних Postgres, але в різних схемах (search paths), їхні сповіщення надсилалися в топік зі спільною назвою. Тепер це не так: усі сповіщення мають префікс — рядок `{schema_name}.`.
 
-- Add `NOT NULL` constraints to the database for `river_job.args` and `river_job.metadata`. Normal code paths should never have allowed for null values any way, but this constraint further strengthens the guarantee. [PR #301](https://github.com/riverqueue/river/pull/301).
-- Stricter constraint on `river_job.finalized_at` to ensure it is only set when paired with a finalized state (completed, discarded, cancelled). Normal code paths should never have allowed for invalid values any way, but this constraint further strengthens the guarantee. [PR #301](https://github.com/riverqueue/river/pull/301).
+- Додано обмеження `NOT NULL` у базі даних для `river_job.args` і `river_job.metadata`. Звичайні шляхи виконання коду й так ніколи не мали допускати null-значень, але це обмеження додатково посилює гарантію. [PR #301](https://github.com/riverqueue/river/pull/301).
+- Суворіше обмеження на `river_job.finalized_at`, яке гарантує, що воно встановлюється лише разом із фінальним станом (completed, discarded, cancelled). Звичайні шляхи виконання коду й так ніколи не мали допускати некоректних значень, але це обмеження додатково посилює гарантію. [PR #301](https://github.com/riverqueue/river/pull/301).
 
 ## [0.4.1] - 2024-04-22
 
-### Fixed
+### Виправлено
 
-- Update job state references in `./cmd/river` and some documentation to `rivertype`. Thanks Danny Hermes (@dhermes)! 🙏🏻 [PR #315](https://github.com/riverqueue/river/pull/315).
+- Оновлено посилання на стани задач у `./cmd/river` і частині документації на `rivertype`. Дякуємо Danny Hermes (@dhermes)! 🙏🏻 [PR #315](https://github.com/riverqueue/river/pull/315).
 
 ## [0.4.0] - 2024-04-20
 
-### Changed
+### Змінено
 
-⚠️ Version 0.4.0 has a number of small breaking changes which we've decided to release all as part of a single version. More breaking changes in one release is inconvenient, but we've tried to coordinate them in hopes that any future breaking changes will be non-existent or very rare. All changes will get picked up by the Go compiler, and each one should be quite easy to fix. The changes don't apply to any of the most common core APIs, and likely many projects won't have to change any code.
+⚠️ Версія 0.4.0 містить низку невеликих несумісних змін, які ми вирішили випустити разом в одній версії. Багато несумісних змін в одному релізі — це незручно, але ми намагалися скоординувати їх, сподіваючись, що надалі несумісних змін не буде зовсім або вони будуть дуже рідкісними. Усі зміни виявить компілятор Go, і кожну з них має бути досить легко виправити. Зміни не стосуються жодного з найпоширеніших базових API, і, ймовірно, багатьом проєктам не доведеться змінювати код.
 
-- **Breaking change:** There are a number of small breaking changes in the job list API using `JobList`/`JobListTx`:
-  - Now support querying jobs by a list of Job Kinds and States. Also allows for filtering by specific timestamp values. Thank you Jos Kraaijeveld (@thatjos)! 🙏🏻 [PR #236](https://github.com/riverqueue/river/pull/236).
-  - Job listing now defaults to ordering by job ID (`JobListOrderByID`) instead of a job timestamp dependent on requested job state. The previous ordering behavior is still available with `NewJobListParams().OrderBy(JobListOrderByTime, SortOrderAsc)`. [PR #307](https://github.com/riverqueue/river/pull/307).
-  - The function `JobListCursorFromJob` no longer needs a sort order parameter. Instead, sort order is determined based on the job list parameters that the cursor is subsequently used with. [PR #307](https://github.com/riverqueue/river/pull/307).
-- **Breaking change:** Client `Insert` and `InsertTx` functions now return a `JobInsertResult` struct instead of a `JobRow`. This allows the result to include metadata like the new `UniqueSkippedAsDuplicate` property, so callers can tell whether an inserted job was skipped due to unique constraint. [PR #292](https://github.com/riverqueue/river/pull/292).
-- **Breaking change:** Client `InsertMany` and `InsertManyTx` now return number of jobs inserted as `int` instead of `int64`. This change was made to make the type in use a little more idiomatic. [PR #293](https://github.com/riverqueue/river/pull/293).
-- **Breaking change:** `river.JobState*` type aliases have been removed. All job state constants should be accessed through `rivertype.JobState*` instead. [PR #300](https://github.com/riverqueue/river/pull/300).
+- **Несумісна зміна:** низка невеликих несумісних змін в API переліку задач, що використовує `JobList`/`JobListTx`:
+  - Тепер підтримується запит задач за списком kind задач і станів. Також можна фільтрувати за конкретними значеннями міток часу. Дякуємо Jos Kraaijeveld (@thatjos)! 🙏🏻 [PR #236](https://github.com/riverqueue/river/pull/236).
+  - Перелік задач тепер за замовчуванням упорядковується за ID задачі (`JobListOrderByID`), а не за міткою часу задачі, що залежала від запитаного стану задачі. Попередня поведінка впорядкування все ще доступна через `NewJobListParams().OrderBy(JobListOrderByTime, SortOrderAsc)`. [PR #307](https://github.com/riverqueue/river/pull/307).
+  - Функції `JobListCursorFromJob` більше не потрібен параметр порядку сортування. Натомість порядок сортування визначається на основі параметрів переліку задач, з якими курсор згодом використовується. [PR #307](https://github.com/riverqueue/river/pull/307).
+- **Несумісна зміна:** функції клієнта `Insert` і `InsertTx` тепер повертають структуру `JobInsertResult` замість `JobRow`. Це дає змогу включати в результат метадані, як-от нову властивість `UniqueSkippedAsDuplicate`, щоб викликачі могли визначити, чи було додавану задачу пропущено через обмеження унікальності. [PR #292](https://github.com/riverqueue/river/pull/292).
+- **Несумісна зміна:** `InsertMany` і `InsertManyTx` клієнта тепер повертають кількість доданих задач як `int` замість `int64`. Цю зміну внесено, щоб використовуваний тип був трохи ідіоматичнішим. [PR #293](https://github.com/riverqueue/river/pull/293).
+- **Несумісна зміна:** вилучено псевдоніми типів `river.JobState*`. Натомість до всіх констант станів задач слід звертатися через `rivertype.JobState*`. [PR #300](https://github.com/riverqueue/river/pull/300).
 
-See also the [0.4.0 release blog post](https://riverqueue.com/blog/a-few-breaking-changes) with code samples and rationale behind various changes.
+Див. також [допис у блозі про реліз 0.4.0](https://riverqueue.com/blog/a-few-breaking-changes) із прикладами коду та обґрунтуванням різних змін.
 
 ## [0.3.0] - 2024-04-15
 
-### Added
+### Додано
 
-- The River client now supports "poll only" mode with `Config.PollOnly` which makes it avoid issuing `LISTEN` statements to wait for new events like a leadership resignation or new job available. The program instead polls periodically to look for changes. A leader resigning or a new job being available will be noticed less quickly, but `PollOnly` potentially makes River operable on systems without listen/notify support, like PgBouncer operating in transaction pooling mode. [PR #281](https://github.com/riverqueue/river/pull/281).
-- Added `rivertype.JobStates()` that returns the full list of possible job states. [PR #297](https://github.com/riverqueue/river/pull/297).
+- Клієнт River тепер підтримує режим «лише опитування» через `Config.PollOnly`, у якому він не виконує інструкцій `LISTEN` для очікування нових подій, як-от відмова лідера від лідерства чи поява нової доступної задачі. Натомість програма періодично виконує опитування, щоб виявити зміни. Відмову лідера від лідерства чи появу нової доступної задачі буде помічено не так швидко, але `PollOnly` потенційно дає змогу використовувати River у системах без підтримки listen/notify, як-от PgBouncer у режимі пулінгу на рівні транзакцій. [PR #281](https://github.com/riverqueue/river/pull/281).
+- Додано `rivertype.JobStates()`, що повертає повний список можливих станів задачі. [PR #297](https://github.com/riverqueue/river/pull/297).
 
 ## [0.2.0] - 2024-03-28
 
-### Added
+### Додано
 
-- New periodic jobs can now be added after a client's already started using `Client.PeriodicJobs().Add()` and removed with `Remove()`. [PR #288](https://github.com/riverqueue/river/pull/288).
+- Нові періодичні задачі тепер можна додавати після запуску клієнта за допомогою `Client.PeriodicJobs().Add()` і видаляти за допомогою `Remove()`. [PR #288](https://github.com/riverqueue/river/pull/288).
 
-### Changed
+### Змінено
 
-- The level of some of River's common log statements has changed, most often demoting `info` statements to `debug` so that `info`-level logging is overall less verbose. [PR #275](https://github.com/riverqueue/river/pull/275).
+- Змінено рівень деяких поширених записів журналу River: здебільшого записи `info` понижено до `debug`, щоб журналювання на рівні `info` загалом було менш багатослівним. [PR #275](https://github.com/riverqueue/river/pull/275).
 
-### Fixed
+### Виправлено
 
-- Fixed a bug in the (log-only for now) reindexer service in which it might repeat its work loop multiple times unexpectedly while stopping. [PR #280](https://github.com/riverqueue/river/pull/280).
-- Periodic job enqueuer now bases next run times on each periodic job's last target run time, instead of the time at which the enqueuer is currently running. This is a small difference that will be unnoticeable for most purposes, but makes scheduling of jobs with short cron frequencies a little more accurate. [PR #284](https://github.com/riverqueue/river/pull/284).
-- Fixed a bug in the elector in which it was possible for a resigning, but not completely stopped, elector to reelect despite having just resigned. [PR #286](https://github.com/riverqueue/river/pull/286).
+- Виправлено помилку в сервісі переіндексації (поки що лише з журналюванням), через яку він міг неочікувано кілька разів повторювати свій робочий цикл під час зупинки. [PR #280](https://github.com/riverqueue/river/pull/280).
+- Сервіс постановки періодичних задач у чергу тепер обчислює час наступного запуску на основі останнього цільового часу запуску кожної періодичної задачі, а не поточного часу роботи самого сервісу. Це невелика відмінність, яка в більшості випадків буде непомітною, але робить планування задач із короткими cron-інтервалами трохи точнішим. [PR #284](https://github.com/riverqueue/river/pull/284).
+- Виправлено помилку в електорі, через яку електор, що склав повноваження, але ще не зупинився повністю, міг повторно обратися, попри те що щойно склав повноваження. [PR #286](https://github.com/riverqueue/river/pull/286).
 
 ## [0.1.0] - 2024-03-17
 
-Although it comes with a number of improvements, there's nothing particularly notable about version 0.1.0. Until now we've only been incrementing the patch version given the project's nascent nature, but from here on we'll try to adhere more closely to semantic versioning, using the patch version for bug fixes, and incrementing the minor version when new functionality is added.
+Хоча версія 0.1.0 містить низку покращень, нічого особливо примітного в ній немає. Досі ми збільшували лише patch-версію, зважаючи на ранню стадію проєкту, але відтепер намагатимемося суворіше дотримуватися семантичного версіонування: patch-версію використовуватимемо для виправлень помилок, а minor-версію збільшуватимемо в разі додавання нової функціональності.
 
-### Added
+### Додано
 
-- The River CLI now supports `river bench` to benchmark River's job throughput against a database. [PR #254](https://github.com/riverqueue/river/pull/254).
-- The River CLI now has a `river migrate-get` command to dump SQL for River migrations for use in alternative migration frameworks. Use it like `river migrate-get --up --version 3 > version3.up.sql`. [PR #273](https://github.com/riverqueue/river/pull/273).
-- The River CLI's `migrate-down` and `migrate-up` options get two new options for `--dry-run` and `--show-sql`. They can be combined to easily run a preflight check on a River upgrade to see which migration commands would be run on a database, but without actually running them. [PR #273](https://github.com/riverqueue/river/pull/273).
-- The River client gets a new `Client.SubscribeConfig` function that lets a subscriber specify the maximum size of their subscription channel. [PR #258](https://github.com/riverqueue/river/pull/258).
+- River CLI тепер підтримує `river bench` для вимірювання пропускної здатності River з обробки задач на базі даних. [PR #254](https://github.com/riverqueue/river/pull/254).
+- River CLI тепер має команду `river migrate-get` для вивантаження SQL міграцій River з метою використання в альтернативних фреймворках міграцій. Використовуйте її так: `river migrate-get --up --version 3 > version3.up.sql`. [PR #273](https://github.com/riverqueue/river/pull/273).
+- Опції `migrate-down` і `migrate-up` River CLI отримали дві нові опції: `--dry-run` і `--show-sql`. Їх можна поєднувати, щоб легко виконати попередню перевірку оновлення River і побачити, які команди міграції було б виконано на базі даних, не виконуючи їх насправді. [PR #273](https://github.com/riverqueue/river/pull/273).
+- Клієнт River отримав нову функцію `Client.SubscribeConfig`, яка дає змогу підписнику задати максимальний розмір свого каналу підписки. [PR #258](https://github.com/riverqueue/river/pull/258).
 
-### Changed
+### Змінено
 
-- River uses a new job completer that batches up completion work so that large numbers of them can be performed more efficiently. In a purely synthetic (i.e. mostly unrealistic) benchmark, River's job throughput increases ~4.5x. [PR #258](https://github.com/riverqueue/river/pull/258).
-- Changed default client IDs to be a combination of hostname and the time which the client started. This can still be changed by specifying `Config.ID`. [PR #255](https://github.com/riverqueue/river/pull/255).
-- Notifier refactored for better robustness and testability. [PR #253](https://github.com/riverqueue/river/pull/253).
+- River використовує новий механізм завершення задач (completer), який групує роботу із завершення в пакети, щоб велику кількість завершень можна було виконувати ефективніше. У суто синтетичному (тобто здебільшого нереалістичному) бенчмарку пропускна здатність River з обробки задач зростає приблизно в 4,5 раза. [PR #258](https://github.com/riverqueue/river/pull/258).
+- Типові ID клієнтів тепер є комбінацією імені хоста та часу запуску клієнта. Це все ще можна змінити, вказавши `Config.ID`. [PR #255](https://github.com/riverqueue/river/pull/255).
+- Сповіщувач перероблено для кращої надійності й тестованості. [PR #253](https://github.com/riverqueue/river/pull/253).
 
 ## [0.0.25] - 2024-03-01
 
-### Fixed
+### Виправлено
 
-- Fixed a problem in `riverpgxv5`'s `Listener` where it wouldn't unset an internal connection if `Close` returned an error, making the listener not reusable. Thanks @mfrister for pointing this one out! [PR #246](https://github.com/riverqueue/river/pull/246).
+- Виправлено проблему в `Listener` з `riverpgxv5`, через яку він не скидав внутрішнє з'єднання, якщо `Close` повертав помилку, що робило слухача непридатним для повторного використання. Дякуємо @mfrister, що звернув на це увагу! [PR #246](https://github.com/riverqueue/river/pull/246).
 
 ## [0.0.24] - 2024-02-29
 
-### Fixed
+### Виправлено
 
-- Fixed a memory leak caused by not always cancelling the context used to enable jobs to be cancelled remotely. [PR #243](https://github.com/riverqueue/river/pull/243).
+- Виправлено витік пам'яті, спричинений тим, що контекст, який використовується для віддаленого скасування задач, скасовувався не завжди. [PR #243](https://github.com/riverqueue/river/pull/243).
 
 ## [0.0.23] - 2024-02-29
 
-### Added
+### Додано
 
-- `JobListParams.Kinds()` has been added so that jobs can now be listed by kind. [PR #212](https://github.com/riverqueue/river/pull/212).
+- Додано `JobListParams.Kinds()`, тож тепер можна отримувати список задач за їхнім kind. [PR #212](https://github.com/riverqueue/river/pull/212).
 
-### Changed
+### Змінено
 
-- The underlying driver system's been entirely revamped so that River's non-test code is now decoupled from `pgx/v5`. This will allow additional drivers to be implemented, although there are no additional ones for now. [PR #212](https://github.com/riverqueue/river/pull/212).
+- Базову систему драйверів повністю перероблено, тож нетестовий код River тепер не залежить від `pgx/v5`. Це дасть змогу реалізувати додаткові драйвери, хоча поки що інших немає. [PR #212](https://github.com/riverqueue/river/pull/212).
 
-### Fixed
+### Виправлено
 
-- Fixed a memory leak caused by allocating a new random source on every job execution. Thank you @shawnstephens for reporting ❤️ [PR #240](https://github.com/riverqueue/river/pull/240).
-- Fix a problem where `JobListParams.Queues()` didn't filter correctly based on its arguments. [PR #212](https://github.com/riverqueue/river/pull/212).
-- Fix a problem in `DebouncedChan` where it would fire on its "out" channel too often when it was being signaled continuously on its "in" channel. This would have caused work to be fetched more often than intended in busy systems. [PR #222](https://github.com/riverqueue/river/pull/222).
+- Виправлено витік пам'яті, спричинений створенням нового джерела випадкових чисел під час кожного виконання задачі. Дякуємо @shawnstephens за повідомлення ❤️ [PR #240](https://github.com/riverqueue/river/pull/240).
+- Виправлено проблему, через яку `JobListParams.Queues()` некоректно фільтрував за своїми аргументами. [PR #212](https://github.com/riverqueue/river/pull/212).
+- Виправлено проблему в `DebouncedChan`, через яку він надто часто спрацьовував на своєму каналі «out», коли на його канал «in» безперервно надходили сигнали. Через це в навантажених системах робота вибиралася частіше, ніж передбачалося. [PR #222](https://github.com/riverqueue/river/pull/222).
 
 ## [0.0.22] - 2024-02-19
 
-### Fixed
+### Виправлено
 
-- Brings in another leadership election fix similar to #217 in which a TTL equal to the elector's run interval plus a configured TTL padding is also used for the initial attempt to gain leadership (#217 brought it in for reelection only). [PR #219](https://github.com/riverqueue/river/pull/219).
+- Ще одне виправлення виборів лідера, подібне до #217: TTL, що дорівнює інтервалу запуску електора плюс налаштований запас TTL, тепер також використовується для початкової спроби отримати лідерство (#217 запровадив це лише для переобрання). [PR #219](https://github.com/riverqueue/river/pull/219).
 
 ## [0.0.21] - 2024-02-19
 
-### Changed
+### Змінено
 
-- Tweaked behavior of `JobRetry` so that it does actually update the `ScheduledAt` time of the job in all cases where the job is actually being rescheduled. As before, jobs which are already available with a past `ScheduledAt` will not be touched by this query so that they retain their place in line. [PR #211](https://github.com/riverqueue/river/pull/211).
+- Скориговано поведінку `JobRetry`: тепер він справді оновлює час `ScheduledAt` задачі в усіх випадках, коли задача фактично перепланується. Як і раніше, цей запит не зачіпає задачі, які вже доступні й мають `ScheduledAt` у минулому, тож вони зберігають своє місце в черзі. [PR #211](https://github.com/riverqueue/river/pull/211).
 
-### Fixed
+### Виправлено
 
-- Fixed a leadership re-election issue that was exposed by the fix in #199. Because we were internally using the same TTL for both an internal timer/ticker and the database update to set the new leader expiration time, a leader wasn't guaranteed to successfully re-elect itself even under normal operation. [PR #217](https://github.com/riverqueue/river/pull/217).
+- Виправлено проблему з переобранням лідера, яку виявило виправлення в #199. Оскільки всередині ми використовували той самий TTL і для внутрішнього таймера/тікера, і для оновлення в базі даних, яке встановлює новий час закінчення лідерства, лідер не мав гарантії успішно переобрати себе навіть за нормальної роботи. [PR #217](https://github.com/riverqueue/river/pull/217).
 
 ## [0.0.20] - 2024-02-14
 
-### Added
+### Додано
 
-- Added an `ID` setting to the `Client` `Config` type to allow users to override client IDs with their own naming convention. Expose the client ID programmatically (in case it's generated) in a new `Client.ID()` method. [PR #206](https://github.com/riverqueue/river/pull/206).
+- До типу `Config` для `Client` додано параметр `ID`, що дає змогу користувачам перевизначати ID клієнтів відповідно до власних правил іменування. ID клієнта (на випадок, якщо його згенеровано) тепер доступний програмно через новий метод `Client.ID()`. [PR #206](https://github.com/riverqueue/river/pull/206).
 
-### Fixed
+### Виправлено
 
-- Fix a leadership re-election query bug that would cause past leaders to think they were continuing to win elections. [PR #199](https://github.com/riverqueue/river/pull/199).
+- Виправлено помилку в запиті переобрання лідера, через яку колишні лідери вважали, що й далі виграють вибори. [PR #199](https://github.com/riverqueue/river/pull/199).
 
 ## [0.0.19] - 2024-02-10
 
-### Added
+### Додано
 
-- Added `JobGet` and `JobGetTx` to the `Client` to enable easily fetching a single job row from code for introspection. [PR #186].
-- Added `JobRetry` and `JobRetryTx` to the `Client` to enable a job to be retried immediately, even if it has already completed, been cancelled, or been discarded. [PR #190].
+- До `Client` додано `JobGet` і `JobGetTx`, щоб можна було легко вибрати з коду один рядок задачі для інтроспекції. [PR #186].
+- До `Client` додано `JobRetry` і `JobRetryTx`, щоб задачу можна було негайно повторити, навіть якщо її вже завершено, скасовано чи відкинуто. [PR #190].
 
-### Changed
+### Змінено
 
-- Validate queue name on job insertion. Allow queue names with hyphen separators in addition to underscore. [PR #184](https://github.com/riverqueue/river/pull/184).
+- Назва черги тепер перевіряється під час додавання задачі. Окрім підкреслення, у назвах черг дозволено дефіс як роздільник. [PR #184](https://github.com/riverqueue/river/pull/184).
 
 ## [0.0.18] - 2024-01-25
 
-### Fixed
+### Виправлено
 
-- Remove a debug statement from periodic job enqueuer that was accidentally left in. [PR #176](https://github.com/riverqueue/river/pull/176).
+- Вилучено випадково залишену налагоджувальну інструкцію з механізму постановки періодичних задач у чергу. [PR #176](https://github.com/riverqueue/river/pull/176).
 
 ## [0.0.17] - 2024-01-22
 
-### Added
+### Додано
 
-- Added `JobCancel` and `JobCancelTx` to the `Client` to enable cancellation of jobs. [PR #141](https://github.com/riverqueue/river/pull/141) and [PR #152](https://github.com/riverqueue/river/pull/152).
-- Added `ClientFromContext` and `ClientFromContextSafely` helpers to extract the `Client` from the worker's context where it is now available to workers. This simplifies making the River client available within your workers for i.e. enqueueing additional jobs. [PR #145](https://github.com/riverqueue/river/pull/145).
-- Add `JobList` API for listing jobs. [PR #117](https://github.com/riverqueue/river/pull/117).
-- Added `river validate` command which fails with a non-zero exit code unless all migrations are applied. [PR #170](https://github.com/riverqueue/river/pull/170).
+- До `Client` додано `JobCancel` і `JobCancelTx` для скасування задач. [PR #141](https://github.com/riverqueue/river/pull/141) і [PR #152](https://github.com/riverqueue/river/pull/152).
+- Додано допоміжні функції `ClientFromContext` і `ClientFromContextSafely` для отримання `Client` з контексту воркера, де він тепер доступний воркерам. Це спрощує доступ до клієнта River усередині ваших воркерів, наприклад для постановки додаткових задач у чергу. [PR #145](https://github.com/riverqueue/river/pull/145).
+- Додано API `JobList` для отримання списку задач. [PR #117](https://github.com/riverqueue/river/pull/117).
+- Додано команду `river validate`, яка завершується з ненульовим кодом виходу, якщо застосовано не всі міграції. [PR #170](https://github.com/riverqueue/river/pull/170).
 
-### Changed
+### Змінено
 
-- For short `JobSnooze` times (smaller than the scheduler's run interval) put the job straight into an `available` state with the specified `scheduled_at` time. This avoids an artificially long delay waiting for the next scheduler run. [PR #162](https://github.com/riverqueue/river/pull/162).
+- За короткого часу `JobSnooze` (меншого за інтервал запуску планувальника) задача одразу переводиться в стан `available` із вказаним часом `scheduled_at`. Це усуває штучно довгу затримку в очікуванні наступного запуску планувальника. [PR #162](https://github.com/riverqueue/river/pull/162).
 
-### Fixed
+### Виправлено
 
-- Fixed incorrect default value handling for `ScheduledAt` option with `InsertMany` / `InsertManyTx`. [PR #149](https://github.com/riverqueue/river/pull/149).
-- Add missing `t.Helper()` calls in `rivertest` internal functions that caused it to report itself as the site of a test failure. [PR #151](https://github.com/riverqueue/river/pull/151).
-- Fixed problem where job uniqueness wasn't being respected when used in conjunction with periodic jobs. [PR #168](https://github.com/riverqueue/river/pull/168).
+- Виправлено некоректну обробку типового значення параметра `ScheduledAt` в `InsertMany` / `InsertManyTx`. [PR #149](https://github.com/riverqueue/river/pull/149).
+- Додано відсутні виклики `t.Helper()` у внутрішніх функціях `rivertest`, через відсутність яких він вказував на себе як на місце падіння тесту. [PR #151](https://github.com/riverqueue/river/pull/151).
+- Виправлено проблему, через яку унікальність задач не дотримувалася в поєднанні з періодичними задачами. [PR #168](https://github.com/riverqueue/river/pull/168).
 
 ## [0.0.16] - 2024-01-06
 
-### Changed
+### Змінено
 
-- Calls to `Stop` error if the client hasn't been started yet. [PR #138](https://github.com/riverqueue/river/pull/138).
+- Виклики `Stop` повертають помилку, якщо клієнт ще не запущено. [PR #138](https://github.com/riverqueue/river/pull/138).
 
-### Fixed
+### Виправлено
 
-- Fix typo in leadership resignation query to ensure faster new leader takeover. [PR #134](https://github.com/riverqueue/river/pull/134).
-- Elector now uses the same `log/slog` instance configured by its parent client. [PR #137](https://github.com/riverqueue/river/pull/137).
-- Notifier now uses the same `log/slog` instance configured by its parent client. [PR #140](https://github.com/riverqueue/river/pull/140).
+- Виправлено одрук у запиті відмови від лідерства, щоб новий лідер швидше перебирав повноваження. [PR #134](https://github.com/riverqueue/river/pull/134).
+- Електор тепер використовує той самий екземпляр `log/slog`, що налаштований у його батьківському клієнті. [PR #137](https://github.com/riverqueue/river/pull/137).
+- Сповіщувач тепер використовує той самий екземпляр `log/slog`, що налаштований у його батьківському клієнті. [PR #140](https://github.com/riverqueue/river/pull/140).
 
 ## [0.0.15] - 2023-12-21
 
-### Fixed
+### Виправлено
 
-- Ensure `ScheduledAt` is respected on `InsertManyTx`. [PR #121](https://github.com/riverqueue/river/pull/121).
+- `ScheduledAt` тепер враховується в `InsertManyTx`. [PR #121](https://github.com/riverqueue/river/pull/121).
 
 ## [0.0.14] - 2023-12-13
 
-### Fixed
+### Виправлено
 
-- River CLI `go.sum` entries fixed for 0.0.13 release.
+- Виправлено записи `go.sum` у River CLI для релізу 0.0.13.
 
 ## [0.0.13] - 2023-12-12
 
-### Added
+### Додано
 
-- Added `riverdriver/riverdatabasesql` driver to enable River Go migrations through Go's built in `database/sql` package. [PR #98](https://github.com/riverqueue/river/pull/98).
+- Додано драйвер `riverdriver/riverdatabasesql`, що дає змогу виконувати Go-міграції River через вбудований пакет Go `database/sql`. [PR #98](https://github.com/riverqueue/river/pull/98).
 
-### Changed
+### Змінено
 
-- Errored jobs that have a very short duration before their next retry (<5 seconds) are set to `available` immediately instead of being made `scheduled` and having to wait for the scheduler to make a pass to make them workable. [PR #105](https://github.com/riverqueue/river/pull/105).
-- `riverdriver` becomes its own submodule. It contains types that `riverdriver/riverdatabasesql` and `riverdriver/riverpgxv5` need to reference. [PR #98](https://github.com/riverqueue/river/pull/98).
-- The `river/cmd/river` CLI has been made its own Go module. This is possible now that it uses the exported `river/rivermigrate` API, and will help with project maintainability. [PR #107](https://github.com/riverqueue/river/pull/107).
+- Задачі з помилкою, у яких до наступної повторної спроби лишається дуже мало часу (<5 секунд), одразу переводяться в `available`, а не в `scheduled` з очікуванням, поки планувальник зробить прохід і зробить їх придатними до виконання. [PR #105](https://github.com/riverqueue/river/pull/105).
+- `riverdriver` стає окремим підмодулем. Він містить типи, на які мають посилатися `riverdriver/riverdatabasesql` і `riverdriver/riverpgxv5`. [PR #98](https://github.com/riverqueue/river/pull/98).
+- CLI `river/cmd/river` виділено в окремий Go-модуль. Це стало можливим тепер, коли він використовує експортований API `river/rivermigrate`, і полегшить супровід проєкту. [PR #107](https://github.com/riverqueue/river/pull/107).
 
 ## [0.0.12] - 2023-12-02
 
-### Added
+### Додано
 
-- Added `river/rivermigrate` package to enable migrations from Go code as an alternative to using the CLI. PR #67.
+- Додано пакет `river/rivermigrate`, що дає змогу виконувати міграції з Go-коду як альтернативу CLI. PR #67.
 
 ## [0.0.11] - 2023-12-02
 
-### Added
+### Додано
 
-- `Stop` and `StopAndCancel` have been changed to respect the provided context argument. When that context is cancelled or times out, those methods will now immediately return with the context's error, even if the Client's shutdown has not yet completed. Apps may need to adjust their graceful shutdown logic to account for this. PR #79.
+- `Stop` і `StopAndCancel` змінено так, щоб вони враховували переданий аргумент контексту. Коли цей контекст скасовується або спливає його тайм-аут, ці методи тепер негайно повертають помилку контексту, навіть якщо зупинку клієнта ще не завершено. Застосункам, можливо, доведеться скоригувати логіку плавної зупинки з урахуванням цього. PR #79.
 
-### Changed
+### Змінено
 
-- `NewClient` no longer errors if it was provided a workers bundle with zero workers. Instead, that check's been moved to `Client.Start` instead. This allows adding workers to a bundle that'd like to reference a River client by letting `AddWorker` be invoked after a client reference is available from `NewClient`. PR #87.
+- `NewClient` більше не повертає помилку, якщо йому передано набір воркерів без жодного воркера. Натомість цю перевірку перенесено в `Client.Start`. Це дає змогу додавати до набору воркери, яким потрібне посилання на клієнт River, оскільки `AddWorker` можна викликати вже після того, як `NewClient` поверне посилання на клієнт. PR #87.
 
 ## [0.0.10] - 2023-11-26
 
-### Added
+### Додано
 
-- Added `Example_scheduledJob`, demonstrating how to schedule a job to be run in the future.
-- Added `Stopped` method to `Client` to make it easier to wait for graceful shutdown to complete.
+- Додано `Example_scheduledJob`, який показує, як запланувати задачу для виконання в майбутньому.
+- До `Client` додано метод `Stopped`, щоб простіше було дочекатися завершення плавної зупинки.
 
-### Fixed
+### Виправлено
 
-- Fixed a panic in the periodic job enqueuer caused by sometimes trying to reset a `time.Ticker` with a negative or zero duration. Fixed in PR #73.
+- Виправлено паніку в механізмі постановки періодичних задач у чергу, спричинену тим, що іноді він намагався скинути `time.Ticker` з від'ємною або нульовою тривалістю. Виправлено в PR #73.
 
-### Changed
+### Змінено
 
-- `DefaultClientRetryPolicy`: calculate the next attempt based on the current time instead of the time the prior attempt began.
+- `DefaultClientRetryPolicy`: наступна спроба обчислюється від поточного часу, а не від часу початку попередньої спроби.
 
 ## [0.0.9] - 2023-11-23
 
-### Fixed
+### Виправлено
 
-- **DATABASE MIGRATION**: Database schema v3 was introduced in v0.0.8 and contained an obvious flaw preventing it from running against existing tables. This migration was altered to execute the migration in multiple steps.
+- **МІГРАЦІЯ БАЗИ ДАНИХ**: схему бази даних v3 було запроваджено у v0.0.8, і вона містила очевидну ваду, через яку її не вдавалося застосувати до наявних таблиць. Цю міграцію змінено так, щоб вона виконувалася в кілька кроків.
 
 ## [0.0.8] - 2023-11-21
 
-### Changed
+### Змінено
 
-- License changed from LGPLv3 to MPL-2.0.
-- **DATABASE MIGRATION**: Database schema v3, alter river_job tags column to set a default of `[]` and add not null constraint.
+- Ліцензію змінено з LGPLv3 на MPL-2.0.
+- **МІГРАЦІЯ БАЗИ ДАНИХ**: схема бази даних v3; для стовпця tags таблиці river_job встановлено типове значення `[]` і додано обмеження not null.
 
 ## [0.0.7] - 2023-11-20
 
-### Changed
+### Змінено
 
-- Constants renamed so that adjectives like `Default` and `Min` become suffixes instead of prefixes. So for example, `DefaultFetchCooldown` becomes `FetchCooldownDefault`.
-- Rename `AttemptError.Num` to `AttemptError.Attempt` to better fit with the name of `JobRow.Attempt`.
-- Document `JobState`, `AttemptError`, and all fields its fields.
-- A `NULL` tags value read from a database job is left as `[]string(nil)` on `JobRow.Tags` rather than a zero-element slice of `[]string{}`. `append` and `len` both work on a `nil` slice, so this should be functionally identical.
+- Константи перейменовано так, що прикметники на кшталт `Default` і `Min` стають суфіксами, а не префіксами. Наприклад, `DefaultFetchCooldown` стає `FetchCooldownDefault`.
+- `AttemptError.Num` перейменовано на `AttemptError.Attempt` для кращої узгодженості з назвою `JobRow.Attempt`.
+- Задокументовано `JobState`, `AttemptError` і всі їхні поля.
+- Значення тегів `NULL`, прочитане із задачі в базі даних, залишається в `JobRow.Tags` як `[]string(nil)`, а не як порожній зріз `[]string{}`. І `append`, і `len` працюють зі зрізом `nil`, тож функціонально це має бути ідентично.
 
 ## [0.0.6] - 2023-11-19
 
-### Changed
+### Змінено
 
-- `JobRow`, `JobState`, and other related types move into `river/rivertype` so they can more easily be shared amongst packages. Most of the River API doesn't change because `JobRow` is embedded on `river.Job`, which doesn't move.
+- `JobRow`, `JobState` та інші пов'язані типи переміщено в `river/rivertype`, щоб їх простіше було спільно використовувати між пакетами. Більша частина API River не змінюється, оскільки `JobRow` вбудовано в `river.Job`, який не переміщується.
 
 ## [0.0.5] - 2023-11-19
 
-### Changed
+### Змінено
 
-- Remove `replace` directive from the project's `go.mod` so that it's possible to install River CLI with `@latest`.
+- З `go.mod` проєкту вилучено директиву `replace`, щоб River CLI можна було встановити з `@latest`.
 
 ## [0.0.4] - 2023-11-17
 
-### Changed
+### Змінено
 
-- Allow River clients to be created with a driver with `nil` database pool for use in testing.
-- Update River test helpers API to use River drivers like `riverdriver/riverpgxv5` to make them agnostic to the third party database package in use.
-- Document `Config.JobTimeout`'s default value.
-- Functionally disable the `Reindexer` queue maintenance service. It'd previously only operated on currently unused indexes anyway, indexes probably do _not_ need to be rebuilt except under fairly rare circumstances, and it needs more work to make sure it's shored up against edge cases like indexes that fail to rebuild before a client restart.
+- Клієнти River тепер можна створювати з драйвером, що має пул з'єднань бази даних `nil`, для використання в тестах.
+- API тестових допоміжних функцій River оновлено для використання драйверів River на кшталт `riverdriver/riverpgxv5`, щоб вони не залежали від використовуваного стороннього пакета бази даних.
+- Задокументовано типове значення `Config.JobTimeout`.
+- Функціонально вимкнено сервіс обслуговування черги `Reindexer`. Раніше він і так працював лише з індексами, які наразі не використовуються; індекси, імовірно, _не_ потребують перебудови, за винятком доволі рідкісних випадків; до того ж сервіс потребує доопрацювання, щоб бути стійким до граничних випадків, як-от індекси, які не вдалося перебудувати до перезапуску клієнта.
 
 ## [0.0.3] - 2023-11-13
 
-### Changed
+### Змінено
 
-- Fix license detection issues with `riverdriver/riverpgxv5` submodule.
-- Ensure that river requires the `riverpgxv5` module with the same version.
+- Виправлено проблеми з визначенням ліцензії для підмодуля `riverdriver/riverpgxv5`.
+- Забезпечено, що river вимагає модуль `riverpgxv5` тієї самої версії.
 
 ## [0.0.2] - 2023-11-13
 
-### Changed
+### Змінено
 
-- Pin own `riverpgxv5` dependency to v0.0.1 and make it a direct locally-replaced dependency. This should allow projects to import versioned deps of both river and `riverpgxv5`.
+- Власну залежність `riverpgxv5` зафіксовано на v0.0.1 і зроблено прямою залежністю з локальною заміною. Це має дати проєктам змогу імпортувати версіоновані залежності як river, так і `riverpgxv5`.
 
 ## [0.0.1] - 2023-11-12
 
-### Added
+### Додано
 
-- This is the initial prerelease of River.
+- Це перший попередній реліз River.
