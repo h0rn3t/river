@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-10-18
+
 ### Changed
 
 - River now requires Go 1.27 or newer. Every module declares `go 1.27.0` with toolchain `go1.27.2`, and Go 1.26 is no longer supported.
