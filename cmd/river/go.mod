@@ -8,13 +8,13 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/lmittmann/tint v1.2.1
 	github.com/microsoft/go-mssqldb v1.11.2
-	github.com/h0rn3t/river v0.51.0
-	github.com/h0rn3t/river/riverdriver v0.51.0
-	github.com/h0rn3t/river/riverdriver/riverpgxv5 v0.51.0
-	github.com/h0rn3t/river/riverdriver/riversqlite v0.51.0
-	github.com/h0rn3t/river/riverdriver/riversqlserver v0.51.0
-	github.com/h0rn3t/river/rivershared v0.51.0
-	github.com/h0rn3t/river/rivertype v0.51.0
+	github.com/h0rn3t/river v0.52.0
+	github.com/h0rn3t/river/riverdriver v0.52.0
+	github.com/h0rn3t/river/riverdriver/riverpgxv5 v0.52.0
+	github.com/h0rn3t/river/riverdriver/riversqlite v0.52.0
+	github.com/h0rn3t/river/riverdriver/riversqlserver v0.52.0
+	github.com/h0rn3t/river/rivershared v0.52.0
+	github.com/h0rn3t/river/rivertype v0.52.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	modernc.org/sqlite v1.60.1

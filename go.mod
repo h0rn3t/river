@@ -8,10 +8,10 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/jackc/puddle/v2 v2.2.3
-	github.com/h0rn3t/river/riverdriver v0.51.0
-	github.com/h0rn3t/river/riverdriver/riverpgxv5 v0.51.0
-	github.com/h0rn3t/river/rivershared v0.51.0
-	github.com/h0rn3t/river/rivertype v0.51.0
+	github.com/h0rn3t/river/riverdriver v0.52.0
+	github.com/h0rn3t/river/riverdriver/riverpgxv5 v0.52.0
+	github.com/h0rn3t/river/rivershared v0.52.0
+	github.com/h0rn3t/river/rivertype v0.52.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.12.1
 	github.com/tidwall/gjson v1.20.0
