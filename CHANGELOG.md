@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a nil pointer panic in the SQL Server driver when cancelling, deleting, or retrying a job through an executor unwrapped from a nil driver.
 - Fixed the SQL Server driver treating `[` in `JobKindList` and `QueueNameList` matches as the start of a `LIKE` character class rather than matching it literally like Postgres does.
 - Fixed the SQL Server driver's `JobUpdateFull` failing on an attempt count out of `smallint` range instead of clamping it like the Postgres drivers do.
+- Fixed the SQL Server driver returning a connection to the pool while `go-mssqldb` could still be reading the response to a rollback that `database/sql` started because the transaction's context was cancelled, so that the next query on the connection raced it. Transactions the driver begins are no longer rolled back on cancellation of their context, but by their `Rollback`.
+- Fixed the SQL Server driver occasionally not fetching or scheduling jobs stored with the database's current time in the same clock tick, which it compared to the current time at 100 nanosecond precision rather than the microsecond precision times are stored at.
 
 ## [0.50.0] - 2026-10-16
 

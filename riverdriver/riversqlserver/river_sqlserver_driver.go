@@ -206,11 +206,26 @@ func (e *Executor) Begin(ctx context.Context) (riverdriver.ExecutorTx, error) {
 		return e.execTx.Begin(ctx)
 	}
 
-	tx, err := e.dbPool.BeginTx(ctx, nil)
+	conn, err := e.dbPool.Conn(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return e.driver.UnwrapExecutor(tx), nil
+
+	// database/sql rolls a transaction back as soon as its context is
+	// cancelled, but go-mssqldb then stops reading the rollback's response
+	// while database/sql hands the connection to the next query, which races
+	// the abandoned response. So the transaction isn't cancelled with ctx,
+	// and its Commit or Rollback reads the response in full before the
+	// connection goes back to the pool. Waiting for a connection still is.
+	tx, err := conn.BeginTx(context.WithoutCancel(ctx), nil)
+	if err != nil {
+		_ = conn.Close() // the begin error is the one worth returning
+		return nil, err
+	}
+
+	executorTx := &ExecutorTx{conn: conn, tx: tx}
+	executorTx.Executor = Executor{nil, templateReplaceWrapper{tx, e.dbtx.replacer}, e.driver, executorTx}
+	return executorTx, nil
 }
 
 func (e *Executor) ColumnExists(ctx context.Context, params *riverdriver.ColumnExistsParams) (bool, error) {
@@ -1978,7 +1993,10 @@ func (e *Executor) queryStrings(ctx context.Context, query string, args ...any) 
 type ExecutorTx struct {
 	Executor
 
-	tx *sql.Tx
+	// conn is the connection of a transaction started by Executor.Begin,
+	// returned to the pool once the transaction is done.
+	conn *sql.Conn
+	tx   *sql.Tx
 }
 
 func (t *ExecutorTx) Begin(ctx context.Context) (riverdriver.ExecutorTx, error) {
@@ -1993,12 +2011,24 @@ func (t *ExecutorTx) Begin(ctx context.Context) (riverdriver.ExecutorTx, error) 
 
 func (t *ExecutorTx) Commit(ctx context.Context) error {
 	// unfortunately, `database/sql` does not take a context ...
-	return t.tx.Commit()
+	err := t.tx.Commit()
+	t.releaseConn()
+	return err
 }
 
 func (t *ExecutorTx) Rollback(ctx context.Context) error {
 	// unfortunately, `database/sql` does not take a context ...
-	return t.tx.Rollback()
+	err := t.tx.Rollback()
+	t.releaseConn()
+	return err
+}
+
+// releaseConn returns the connection of a transaction started by
+// Executor.Begin to the pool once the transaction is done.
+func (t *ExecutorTx) releaseConn() {
+	if t.conn != nil {
+		_ = t.conn.Close() // only sql.ErrConnDone, when released again on a rollback after commit
+	}
 }
 
 // ExecutorSubTx is an Executor running in a savepoint of a transaction.
@@ -2266,8 +2296,10 @@ const (
 	), N'{}')`
 
 	// nowSQL is the current time, which is the time in `@now` if it's set and
-	// the database's time otherwise.
-	nowSQL = "coalesce(CAST(@now AS datetime2(6)), sysutcdatetime())"
+	// the database's time otherwise. The database's time is rounded to
+	// microseconds like it is when stored, or a job stored with it could
+	// compare as later than the current time read in the same clock tick.
+	nowSQL = "coalesce(CAST(@now AS datetime2(6)), CAST(sysutcdatetime() AS datetime2(6)))"
 
 	// schemaNameSQL is the name of the schema in `@schema`, or the default
 	// schema if it's empty.

@@ -820,8 +820,8 @@ func exerciseJobInsert[TTx any](ctx context.Context, t *testing.T,
 					params.FinalizedAt = nil
 					_, err := exec.JobInsertFull(ctx, params)
 					require.Error(t, err)
-					// two separate error messages here for Postgres and SQLite
-					require.Regexp(t, `(CHECK constraint failed: finalized_or_finalized_at_null|violates check constraint "finalized_or_finalized_at_null")`, err.Error())
+					// separate error messages here for Postgres, SQLite, and SQL Server
+					require.Regexp(t, `(CHECK constraint failed: finalized_or_finalized_at_null|violates check constraint "finalized_or_finalized_at_null"|conflicted with the CHECK constraint "river_job_finalized_or_finalized_at_null")`, err.Error())
 				})
 
 				t.Run(fmt.Sprintf("CanSetState%sWithFinalizedAt", capitalizeJobState(state)), func(t *testing.T) {
@@ -870,8 +870,8 @@ func exerciseJobInsert[TTx any](ctx context.Context, t *testing.T,
 						State:       &state,
 					}))
 					require.Error(t, err)
-					// two separate error messages here for Postgres and SQLite
-					require.Regexp(t, `(CHECK constraint failed: finalized_or_finalized_at_null|violates check constraint "finalized_or_finalized_at_null")`, err.Error())
+					// separate error messages here for Postgres, SQLite, and SQL Server
+					require.Regexp(t, `(CHECK constraint failed: finalized_or_finalized_at_null|violates check constraint "finalized_or_finalized_at_null"|conflicted with the CHECK constraint "river_job_finalized_or_finalized_at_null")`, err.Error())
 				})
 			}
 		})

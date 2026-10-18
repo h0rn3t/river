@@ -3,6 +3,7 @@ package riverdrivertest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -107,6 +108,28 @@ func exerciseExecutorTx[TTx any](ctx context.Context, t *testing.T,
 			nextTx, err := exec.Begin(nextCtx)
 			require.NoError(t, err)
 			require.NoError(t, nextTx.Rollback(ctx))
+		})
+
+		t.Run("CancelledTransactionLeavesPoolUsable", func(t *testing.T) {
+			t.Parallel()
+
+			driver, _ := driverWithSchema(ctx, t, nil)
+			exec := driver.GetExecutor()
+
+			// Cancel a transaction's context before rolling it back, which
+			// database/sql answers by rolling back by itself. The connection
+			// must not still be in use by that rollback once the next
+			// operation gets it from the pool.
+			for range 100 {
+				txCtx, cancel := context.WithCancel(ctx)
+				tx, err := exec.Begin(txCtx)
+				require.NoError(t, err)
+				require.NoError(t, tx.Exec(txCtx, "SELECT 1"))
+				cancel()
+				_ = tx.Rollback(ctx) // database/sql may have rolled back already
+
+				require.NoError(t, exec.Exec(ctx, "SELECT 1"))
+			}
 		})
 
 		t.Run("NestedTransactions", func(t *testing.T) {
@@ -331,8 +354,11 @@ func exerciseExecutorTx[TTx any](ctx context.Context, t *testing.T,
 					}
 					job = testfactory.Job(ctx, t, tx, &testfactory.JobOpts{Schema: schema})
 					if name == "BorrowedDatabaseError" {
-						innerErr = tx.Exec(ctx, "SELECT * FROM river_nonexistent_table")
-						require.Error(t, innerErr)
+						err := tx.Exec(ctx, "SELECT * FROM river_nonexistent_table")
+						require.Error(t, err)
+						// Wrapped because SQL Server's mssql.Error holds a slice,
+						// so errors.Is can't match it by equality.
+						innerErr = fmt.Errorf("database error: %w", err)
 					}
 					return job.ID, innerErr
 				})
