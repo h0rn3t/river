@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -422,6 +423,23 @@ func (e *JobExecutor) reportResult(ctx context.Context, jobRow *rivertype.JobRow
 		return metadataUpdatesBytes, nil
 	}
 
+	// Metadata updates that can't be marshaled can't be stored, but the job
+	// must still be finalized rather than left running until it's rescued, so
+	// its attempt is failed instead.
+	reportMarshalMetadataUpdatesError := func(err error) {
+		e.Logger.ErrorContext(ctx, e.Name+": Failed to marshal metadata updates",
+			slog.String("error", err.Error()),
+			slog.Int64("job_id", jobRow.ID),
+		)
+
+		errRes := *res
+		errRes.MetadataUpdates = nil
+		if errRes.PanicVal == nil {
+			errRes.Err = errors.Join(errRes.Err, fmt.Errorf("error marshaling metadata updates: %w", err))
+		}
+		e.reportError(ctx, jobRow, &errRes, nil)
+	}
+
 	if res.Err != nil && errors.As(res.Err, &snoozeErr) {
 		e.Logger.DebugContext(ctx, e.Name+": Job snoozed",
 			slog.Int64("job_id", jobRow.ID),
@@ -430,16 +448,19 @@ func (e *JobExecutor) reportResult(ctx context.Context, jobRow *rivertype.JobRow
 		)
 		nextAttemptScheduledAt := e.Time.Now().Add(snoozeErr.Duration)
 
-		if res.MetadataUpdates == nil {
-			res.MetadataUpdates = make(map[string]any)
-		}
 		// Set snooze count in the metadata map before marshaling so we avoid
-		// rewriting a potentially large encoded metadata payload.
-		res.MetadataUpdates["snoozes"] = NextSnoozeCount(jobRow.Metadata)
+		// rewriting a potentially large encoded metadata payload. The map is
+		// copied because it's shared by every job in a batch result, and the
+		// count is specific to this one.
+		metadataUpdates := maps.Clone(res.MetadataUpdates)
+		if metadataUpdates == nil {
+			metadataUpdates = make(map[string]any)
+		}
+		metadataUpdates["snoozes"] = NextSnoozeCount(jobRow.Metadata)
 
-		metadataUpdatesBytes, err := marshalMetadataUpdates(res.MetadataUpdates)
+		metadataUpdatesBytes, err := marshalMetadataUpdates(metadataUpdates)
 		if err != nil {
-			e.Logger.ErrorContext(ctx, e.Name+": Failed to marshal metadata updates", slog.String("error", err.Error()))
+			reportMarshalMetadataUpdatesError(err)
 			return
 		}
 
@@ -464,7 +485,7 @@ func (e *JobExecutor) reportResult(ctx context.Context, jobRow *rivertype.JobRow
 
 	metadataUpdatesBytes, err := marshalMetadataUpdates(res.MetadataUpdates)
 	if err != nil {
-		e.Logger.ErrorContext(ctx, e.Name+": Failed to marshal metadata updates", slog.String("error", err.Error()))
+		reportMarshalMetadataUpdatesError(err)
 		return
 	}
 

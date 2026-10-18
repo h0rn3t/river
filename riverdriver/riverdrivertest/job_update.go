@@ -1114,6 +1114,28 @@ func exerciseJobUpdate[TTx any](ctx context.Context, t *testing.T, executorWithT
 			require.JSONEq(t, `{"a":"b", "foo":"bar", "something":"else"}`, string(jobAfter.Metadata))
 		})
 
+		t.Run("StoresMetadataUpdatesAsShallowMerge", func(t *testing.T) {
+			t.Parallel()
+
+			exec, _ := setup(ctx, t)
+
+			now := time.Now().UTC()
+
+			job := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{
+				Metadata: []byte(`{"bool":true, "keep":"x", "list":[1,2], "nested":{"a":1, "b":2}, "nulled":"y"}`),
+				State:    new(rivertype.JobStateRunning),
+			})
+
+			// Like Postgres' `||`, keys in the update replace existing keys
+			// wholesale (nested objects aren't merged) and null values are
+			// stored rather than deleting the key.
+			jobsAfter, err := exec.JobSetStateIfRunningMany(ctx, setStateManyParams(riverdriver.JobSetStateCompleted(job.ID, now, []byte(`{"false":false, "nested":{"c":3}, "nulled":null, "num":1.5}`))))
+			require.NoError(t, err)
+			jobAfter := jobsAfter[0]
+			require.Equal(t, rivertype.JobStateCompleted, jobAfter.State)
+			require.JSONEq(t, `{"bool":true, "false":false, "keep":"x", "list":[1,2], "nested":{"c":3}, "nulled":null, "num":1.5}`, string(jobAfter.Metadata))
+		})
+
 		t.Run("UnknownJobIgnored", func(t *testing.T) {
 			t.Parallel()
 
@@ -1383,6 +1405,31 @@ func exerciseJobUpdate[TTx any](ctx context.Context, t *testing.T, executorWithT
 			require.Equal(t, job1.ScheduledAt, jobUpdated.ScheduledAt)
 		})
 
+		t.Run("UpdatesOnlyMetadataForAlreadyRetryableJobsAsShallowMerge", func(t *testing.T) {
+			t.Parallel()
+
+			exec, _ := setup(ctx, t)
+
+			now := time.Now().UTC()
+
+			job := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{
+				Metadata:    []byte(`{"keep":"x", "nested":{"a":1, "b":2}, "nulled":"y"}`),
+				State:       new(rivertype.JobStateRetryable),
+				ScheduledAt: new(now.Add(10 * time.Second)),
+			})
+
+			// Like Postgres' `||`, keys in the update replace existing keys
+			// wholesale (nested objects aren't merged) and null values are
+			// stored rather than deleting the key.
+			jobsAfter, err := exec.JobSetStateIfRunningMany(ctx, setStateManyParams(
+				riverdriver.JobSetStateErrorRetryable(job.ID, now, makeErrPayload(t, now), []byte(`{"bool":true, "nested":{"c":3}, "nulled":null}`)),
+			))
+			require.NoError(t, err)
+			jobAfter := jobsAfter[0]
+			require.Equal(t, rivertype.JobStateRetryable, jobAfter.State)
+			require.JSONEq(t, `{"bool":true, "keep":"x", "nested":{"c":3}, "nulled":null}`, string(jobAfter.Metadata))
+		})
+
 		t.Run("SetsAJobWithCancelAttemptedAtToCancelled", func(t *testing.T) {
 			t.Parallel()
 
@@ -1618,6 +1665,27 @@ func exerciseJobUpdate[TTx any](ctx context.Context, t *testing.T, executorWithT
 			})
 			require.NoError(t, err)
 			require.JSONEq(t, `{"key1":"val1","key2":"val2"}`, string(updatedJob.Metadata))
+		})
+
+		t.Run("MetadataMergeIsShallow", func(t *testing.T) {
+			t.Parallel()
+
+			exec, _ := setup(ctx, t)
+
+			job := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{
+				Metadata: []byte(`{"keep":"x", "nested":{"a":1, "b":2}, "nulled":"y"}`),
+			})
+
+			// Like Postgres' `||`, keys in the update replace existing keys
+			// wholesale (nested objects aren't merged) and null values are
+			// stored rather than deleting the key.
+			updatedJob, err := exec.JobUpdate(ctx, &riverdriver.JobUpdateParams{
+				ID:              job.ID,
+				MetadataDoMerge: true,
+				Metadata:        []byte(`{"bool":false, "nested":{"c":3}, "nulled":null}`),
+			})
+			require.NoError(t, err)
+			require.JSONEq(t, `{"bool":false, "keep":"x", "nested":{"c":3}, "nulled":null}`, string(updatedJob.Metadata))
 		})
 
 		t.Run("NoArgs", func(t *testing.T) {

@@ -169,7 +169,10 @@ func (w *Worker[T, TTx]) workJob(ctx context.Context, tb testing.TB, tx TTx, job
 		StateDoUpdate:       true,
 		State:               rivertype.JobStateRunning,
 	})
-	if err != nil && !errors.Is(err, rivertype.ErrNotFound) {
+	if err != nil {
+		if errors.Is(err, rivertype.ErrNotFound) {
+			return nil, fmt.Errorf("test worker internal error: failed to update job to running state: job %d not found (it must be inserted before WorkJob is called): %w", job.ID, err)
+		}
 		return nil, fmt.Errorf("test worker internal error: failed to update job to running state: %w", err)
 	}
 	job = updatedJobRow

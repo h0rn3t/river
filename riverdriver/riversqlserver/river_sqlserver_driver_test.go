@@ -3,8 +3,11 @@ package riversqlserver
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,6 +42,82 @@ func TestDriverSQLFragmentColumnIn(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "kind IN (SELECT value COLLATE Latin1_General_100_BIN2 FROM OPENJSON(@kind))", sqlFragment)
 		require.Equal(t, `["kind1","kind2"]`, arg)
+	})
+}
+
+func TestExecutorBegin(t *testing.T) {
+	t.Parallel()
+
+	type testBundle struct {
+		connector *stubConnector
+		dbPool    *sql.DB
+	}
+
+	setup := func(t *testing.T) (riverdriver.Executor, *testBundle) {
+		t.Helper()
+
+		connector := &stubConnector{}
+		dbPool := sql.OpenDB(connector)
+		t.Cleanup(func() { _ = dbPool.Close() }) // sql: database is closed for tests that close it themselves
+
+		return New(dbPool).GetExecutor(), &testBundle{
+			connector: connector,
+			dbPool:    dbPool,
+		}
+	}
+
+	t.Run("AllConnectionsBad", func(t *testing.T) {
+		t.Parallel()
+
+		exec, bundle := setup(t)
+		bundle.connector.badThrough.Store(math.MaxInt64)
+
+		// Retries are bounded, here by the pool having no idle connections.
+		_, err := exec.Begin(t.Context())
+		require.ErrorIs(t, err, driver.ErrBadConn)
+		require.Equal(t, int64(2), bundle.connector.numOpened.Load())
+	})
+
+	t.Run("ClosedPool", func(t *testing.T) {
+		t.Parallel()
+
+		exec, bundle := setup(t)
+		require.NoError(t, bundle.dbPool.Close())
+
+		_, err := exec.Begin(t.Context())
+		require.ErrorIs(t, err, riverdriver.ErrClosedPool)
+	})
+
+	t.Run("RetriesBadIdleConnections", func(t *testing.T) {
+		t.Parallel()
+
+		exec, bundle := setup(t)
+		ctx := t.Context()
+
+		// Fill the pool with idle connections, then have all of them go bad
+		// like after a failover.
+		const numIdle = 3
+		bundle.dbPool.SetMaxIdleConns(numIdle)
+		conns := make([]*sql.Conn, numIdle)
+		for i := range conns {
+			var err error
+			conns[i], err = bundle.dbPool.Conn(ctx)
+			require.NoError(t, err)
+		}
+		for _, conn := range conns {
+			require.NoError(t, conn.Close())
+		}
+		require.Equal(t, numIdle, bundle.dbPool.Stats().Idle)
+		bundle.connector.badThrough.Store(numIdle)
+
+		tx, err := exec.Begin(ctx)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit(ctx))
+
+		// Every bad connection was discarded, and the transaction ran on a
+		// new one, which is back in the pool.
+		require.Equal(t, int64(numIdle+1), bundle.connector.numOpened.Load())
+		require.Equal(t, 1, bundle.dbPool.Stats().Idle)
 	})
 }
 
@@ -93,6 +172,10 @@ func TestInterpretError(t *testing.T) {
 	require.EqualError(t, interpretError(errors.New("an error")), "an error")
 	require.ErrorIs(t, interpretError(sql.ErrNoRows), rivertype.ErrNotFound)
 	require.NoError(t, interpretError(nil))
+
+	dbPool := sql.OpenDB(&stubConnector{})
+	require.NoError(t, dbPool.Close())
+	require.ErrorIs(t, interpretError(dbPool.PingContext(t.Context())), riverdriver.ErrClosedPool)
 }
 
 func TestJobIDSequenceName(t *testing.T) {
@@ -270,6 +353,17 @@ func TestTTLArgs(t *testing.T) {
 	}, ttlArgs(15*time.Second+500*time.Millisecond+time.Microsecond+999*time.Nanosecond))
 }
 
+func TestTimeParam(t *testing.T) {
+	t.Parallel()
+
+	// Truncated to microseconds rather than rounded, like timeString.
+	timeWithNanos := time.Date(2026, 10, 15, 12, 34, 56, 123456789, time.FixedZone("UTC+2", 2*60*60))
+	want := time.Date(2026, 10, 15, 10, 34, 56, 123456000, time.UTC)
+	require.Equal(t, want, timeParam(timeWithNanos), "timeParam(%v)", timeWithNanos)
+	require.Equal(t, want, nullableTime(&timeWithNanos), "nullableTime(%v)", timeWithNanos)
+	require.Nil(t, nullableTime(nil))
+}
+
 func TestTimeString(t *testing.T) {
 	t.Parallel()
 
@@ -298,3 +392,47 @@ func TestTxDBTX(t *testing.T) {
 		require.Equal(t, execTx.dbtx, txDBTX(execTx))
 	})
 }
+
+// stubConn is a connection of stubConnector.
+type stubConn struct {
+	connector *stubConnector
+	num       int64
+}
+
+func (c *stubConn) Begin() (driver.Tx, error) {
+	return c.BeginTx(context.Background(), driver.TxOptions{})
+}
+
+func (c *stubConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+	if c.num <= c.connector.badThrough.Load() {
+		return nil, driver.ErrBadConn
+	}
+	return stubTx{}, nil
+}
+
+func (c *stubConn) Close() error { return nil }
+
+func (c *stubConn) Prepare(query string) (driver.Stmt, error) {
+	return nil, errors.New("not implemented")
+}
+
+// stubConnector opens connections for a database/sql pool without a database.
+// They can only begin, commit, and roll back transactions.
+type stubConnector struct {
+	// badThrough is the number of the last opened connection that's bad, like
+	// one a database server has dropped. Connections are numbered from 1.
+	badThrough atomic.Int64
+	numOpened  atomic.Int64
+}
+
+func (c *stubConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	return &stubConn{connector: c, num: c.numOpened.Add(1)}, nil
+}
+
+func (c *stubConnector) Driver() driver.Driver { return nil }
+
+// stubTx is a transaction of stubConn.
+type stubTx struct{}
+
+func (stubTx) Commit() error   { return nil }
+func (stubTx) Rollback() error { return nil }

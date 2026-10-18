@@ -320,7 +320,7 @@ func (e *Executor) JobCancel(ctx context.Context, params *riverdriver.JobCancelP
 	// the initial update comes back empty, it does one more fetch to return the
 	// most appropriate error.
 	return dbutil.WithTxV(ctx, e.executor(), func(ctx context.Context, execTx riverdriver.ExecutorTx) (*rivertype.JobRow, error) { // TODO
-		dbtx := templateReplaceWrapper{dbtx: e.driver.UnwrapTx(execTx), replacer: &e.driver.replacer}
+		dbtx := txDBTX(execTx)
 
 		cancelledAt, err := params.CancelAttemptedAt.UTC().MarshalJSON()
 		if err != nil {
@@ -438,7 +438,7 @@ func (e *Executor) JobDelete(ctx context.Context, params *riverdriver.JobDeleteP
 	// the initial delete comes back empty, it does one more fetch to return the
 	// most appropriate error.
 	return dbutil.WithTxV(ctx, e.executor(), func(ctx context.Context, execTx riverdriver.ExecutorTx) (*rivertype.JobRow, error) { // TODO
-		dbtx := templateReplaceWrapper{dbtx: e.driver.UnwrapTx(execTx), replacer: &e.driver.replacer}
+		dbtx := txDBTX(execTx)
 
 		job, err := dbsqlc.New().JobDelete(schemaTemplateParam(ctx, params.Schema), dbtx, params.ID)
 		if err != nil {
@@ -763,13 +763,17 @@ func (e *Executor) JobInsertFullMany(ctx context.Context, params *riverdriver.Jo
 
 func (e *Executor) JobKindList(ctx context.Context, params *riverdriver.JobKindListParams) ([]string, error) {
 	exclude := params.Exclude
-	if len(exclude) == 0 {
-		exclude = []string{""}
+	if exclude == nil {
+		exclude = []string{} // encode as `[]` because json_each of `null` yields a NULL row
+	}
+	excludeJSON, err := json.Marshal(exclude)
+	if err != nil {
+		return nil, err
 	}
 
 	kinds, err := dbsqlc.New().JobKindList(schemaTemplateParam(ctx, params.Schema), e.dbtx, &dbsqlc.JobKindListParams{
 		After:   params.After,
-		Exclude: exclude,
+		Exclude: excludeJSON,
 		Match:   params.Match,
 		Max:     int64(min(params.Max, math.MaxInt32)),
 	})
@@ -808,7 +812,7 @@ func (e *Executor) JobList(ctx context.Context, params *riverdriver.JobListParam
 func (e *Executor) JobRescueMany(ctx context.Context, params *riverdriver.JobRescueManyParams) (*struct{}, error) {
 	if err := dbutil.WithTx(ctx, e.executor(), func(ctx context.Context, execTx riverdriver.ExecutorTx) error {
 		ctx = schemaTemplateParam(ctx, params.Schema)
-		dbtx := templateReplaceWrapper{dbtx: e.driver.UnwrapTx(execTx), replacer: &e.driver.replacer}
+		dbtx := txDBTX(execTx)
 
 		// Should be a batch rescue, but that's currently impossible with SQLite/sqlc. https://github.com/sqlc-dev/sqlc/issues/3802
 		for i := range params.ID {
@@ -839,7 +843,7 @@ func (e *Executor) JobRetry(ctx context.Context, params *riverdriver.JobRetryPar
 	// the initial update comes back empty, it does one more fetch to return the
 	// most appropriate error.
 	return dbutil.WithTxV(ctx, e.executor(), func(ctx context.Context, execTx riverdriver.ExecutorTx) (*rivertype.JobRow, error) {
-		dbtx := templateReplaceWrapper{dbtx: e.driver.UnwrapTx(execTx), replacer: &e.driver.replacer}
+		dbtx := txDBTX(execTx)
 
 		job, err := dbsqlc.New().JobRetry(schemaTemplateParam(ctx, params.Schema), dbtx, &dbsqlc.JobRetryParams{
 			ID:  params.ID,
@@ -879,7 +883,11 @@ func (e *Executor) JobSchedule(ctx context.Context, params *riverdriver.JobSched
 	// at a time is possible for SQLite, this should be okay.
 	return dbutil.WithTxV(ctx, e.executor(), func(ctx context.Context, execTx riverdriver.ExecutorTx) ([]*riverdriver.JobScheduleResult, error) {
 		ctx = schemaTemplateParam(ctx, params.Schema)
-		dbtx := templateReplaceWrapper{dbtx: e.driver.UnwrapTx(execTx), replacer: &e.driver.replacer}
+		dbtx := txDBTX(execTx)
+
+		if err := dbsqlc.New().JobScheduleLock(ctx, dbtx); err != nil {
+			return nil, interpretError(err)
+		}
 
 		eligibleJobs, err := dbsqlc.New().JobScheduleGetEligible(schemaTemplateParam(ctx, params.Schema), dbtx, &dbsqlc.JobScheduleGetEligibleParams{
 			Max: int64(params.Max),
@@ -975,7 +983,7 @@ func (e *Executor) JobSetStateIfRunningMany(ctx context.Context, params *riverdr
 
 	if err := dbutil.WithTx(ctx, e.executor(), func(ctx context.Context, execTx riverdriver.ExecutorTx) error {
 		ctx = schemaTemplateParam(ctx, params.Schema)
-		dbtx := templateReplaceWrapper{dbtx: e.driver.UnwrapTx(execTx), replacer: &e.driver.replacer}
+		dbtx := txDBTX(execTx)
 
 		// Should be a batch update, but that's currently impossible with SQLite/sqlc. https://github.com/sqlc-dev/sqlc/issues/3802
 		for i := range params.ID {
@@ -1037,7 +1045,7 @@ func (e *Executor) JobSetStateIfRunningMany(ctx context.Context, params *riverdr
 
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, interpretError(err)
 	}
 
 	return setRes, nil
@@ -1090,7 +1098,7 @@ func (e *Executor) JobUpdateFull(ctx context.Context, params *riverdriver.JobUpd
 		FinalizedAtDoUpdate: params.FinalizedAtDoUpdate,
 		FinalizedAt:         timeStringNullable(params.FinalizedAt),
 		MaxAttemptsDoUpdate: params.MaxAttemptsDoUpdate,
-		MaxAttempts:         int64(min(params.MaxAttempts, math.MaxInt64)),
+		MaxAttempts:         int64(params.MaxAttempts),
 		MetadataDoUpdate:    params.MetadataDoUpdate,
 		Metadata:            metadata,
 		StateDoUpdate:       params.StateDoUpdate,
@@ -1252,6 +1260,15 @@ func (e *Executor) MigrationInsertManyAssumingMain(ctx context.Context, params *
 	}), nil
 }
 
+// MigrationLock is a no-op because SQLite transactions are serializable and
+// it allows only one writer at a time. A migrator that read migration state
+// and then raced another one to apply the same migration can't commit over
+// it: its write fails with SQLITE_BUSY and its transaction rolls back, and
+// any migrator starting after the other committed sees the applied version.
+func (e *Executor) MigrationLock(ctx context.Context, params *riverdriver.MigrationLockParams) error {
+	return nil
+}
+
 func (e *Executor) NotificationDeleteBefore(ctx context.Context, params *riverdriver.NotificationDeleteBeforeParams) (int, error) {
 	numDeleted, err := dbsqlc.New().NotificationDeleteBefore(
 		schemaTemplateParam(ctx, params.Schema),
@@ -1337,12 +1354,17 @@ func (e *Executor) QueueList(ctx context.Context, params *riverdriver.QueueListP
 
 func (e *Executor) QueueNameList(ctx context.Context, params *riverdriver.QueueNameListParams) ([]string, error) {
 	exclude := params.Exclude
-	if len(exclude) == 0 {
-		exclude = []string{""}
+	if exclude == nil {
+		exclude = []string{} // encode as `[]` because json_each of `null` yields a NULL row
 	}
+	excludeJSON, err := json.Marshal(exclude)
+	if err != nil {
+		return nil, err
+	}
+
 	queueNames, err := dbsqlc.New().QueueNameList(schemaTemplateParam(ctx, params.Schema), e.dbtx, &dbsqlc.QueueNameListParams{
 		After:   params.After,
-		Exclude: exclude,
+		Exclude: excludeJSON,
 		Match:   params.Match,
 		Max:     int64(min(params.Max, math.MaxInt32)),
 	})
@@ -1509,7 +1531,7 @@ func (t *ExecutorTx) Begin(ctx context.Context) (riverdriver.ExecutorTx, error) 
 		savepointNum: 0,
 		tx:           t.tx,
 	}
-	executorSubTx.Executor = Executor{nil, templateReplaceWrapper{t.tx, &t.driver.replacer}, t.driver, executorSubTx}
+	executorSubTx.Executor = Executor{nil, t.dbtx, t.driver, executorSubTx}
 	return executorSubTx.Begin(ctx)
 }
 
@@ -1554,7 +1576,7 @@ func (t *ExecutorSubTx) Begin(ctx context.Context) (riverdriver.ExecutorTx, erro
 		savepointNum: nextSavepointNum,
 		tx:           t.tx,
 	}
-	executorSubTx.Executor = Executor{nil, templateReplaceWrapper{t.tx, &t.driver.replacer}, t.driver, executorSubTx}
+	executorSubTx.Executor = Executor{nil, t.dbtx, t.driver, executorSubTx}
 
 	return executorSubTx, nil
 }
@@ -1592,6 +1614,11 @@ func (t *ExecutorSubTx) Rollback(ctx context.Context) error {
 func interpretError(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return rivertype.ErrNotFound
+	}
+	// database/sql doesn't export the error it returns for a closed database,
+	// so it's matched by message.
+	if errors.Is(err, sql.ErrConnDone) || err != nil && strings.Contains(err.Error(), "sql: database is closed") {
+		return fmt.Errorf("%w: %w", riverdriver.ErrClosedPool, err)
 	}
 	return err
 }
@@ -1934,6 +1961,19 @@ func timeStringNullable(t *time.Time) *string {
 
 	str := timeString(*t)
 	return &str
+}
+
+// txDBTX returns the query runner of a transaction started by dbutil.WithTxV.
+// It's taken from the transaction's executor rather than the driver, which is
+// nil for an executor from UnwrapExecutor invoked on a nil driver.
+func txDBTX(execTx riverdriver.ExecutorTx) templateReplaceWrapper {
+	switch execTx := execTx.(type) {
+	case *ExecutorSubTx:
+		return execTx.dbtx
+	case *ExecutorTx:
+		return execTx.dbtx
+	}
+	panic("unhandled executor type")
 }
 
 // validateJSON returns an error describing why data isn't valid JSON, or nil if

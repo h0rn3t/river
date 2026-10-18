@@ -971,6 +971,28 @@ func exerciseJobRead[TTx any](ctx context.Context, t *testing.T, executorWithTx 
 			require.Equal(t, []string{job3.Kind, job1.Kind}, jobKinds)
 		})
 
+		t.Run("ExcludesMultipleJobKindsInExcludeList", func(t *testing.T) { //nolint:dupl
+			t.Parallel()
+
+			exec, _ := setup(ctx, t)
+
+			job1 := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{Kind: new("job_aaa")})
+			job2 := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{Kind: new("job_bbb")})
+			job3 := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{Kind: new("job_ccc")})
+			job4 := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{Kind: new("job_ddd")})
+			job5 := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{Kind: new("job_eee")})
+
+			jobKinds, err := exec.JobKindList(ctx, &riverdriver.JobKindListParams{
+				After:   "",
+				Exclude: []string{job1.Kind, job3.Kind, job5.Kind},
+				Match:   "job",
+				Max:     10,
+				Schema:  "",
+			})
+			require.NoError(t, err)
+			require.Equal(t, []string{job2.Kind, job4.Kind}, jobKinds)
+		})
+
 		t.Run("ListsJobKindsWithSubstringMatch", func(t *testing.T) { //nolint:dupl
 			t.Parallel()
 

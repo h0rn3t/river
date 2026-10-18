@@ -1,10 +1,15 @@
+-- Resolves the table the same way as TableExists (`to_regclass`, which falls
+-- back to `search_path` when the name is unqualified) so that the two agree on
+-- which table is being inspected.
+--
 -- name: ColumnExists :one
 SELECT EXISTS (
-    SELECT column_name
-    FROM information_schema.columns 
-    WHERE table_name = @table_name::text
-        AND table_schema = /* TEMPLATE_BEGIN: schema */ CURRENT_SCHEMA /* TEMPLATE_END */
-        AND column_name = @column_name::text
+    SELECT 1
+    FROM pg_catalog.pg_attribute
+    WHERE attrelid = to_regclass(@schema_and_table::text)
+        AND attname = @column_name::text
+        AND attnum > 0
+        AND NOT attisdropped
 );
 
 -- name: IndexExists :one

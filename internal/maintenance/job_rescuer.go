@@ -233,9 +233,17 @@ func (s *JobRescuer) runOnce(ctx context.Context) (*rescuerRunOnceResult, error)
 		}
 
 		for _, job := range stuckJobs {
+			// Metadata that can't be decoded (e.g. a user-set, non-RFC 3339
+			// `cancel_attempted_at`) must not abort the whole run, which would
+			// otherwise fail on this same job every time. Rescue it as if no
+			// cancellation had been attempted.
 			var metadata metadataWithCancelAttemptedAt
 			if err := json.Unmarshal(job.Metadata, &metadata); err != nil {
-				return nil, fmt.Errorf("error unmarshaling job metadata: %w", err)
+				s.Logger.WarnContext(ctx, s.Name+": Error unmarshaling job metadata; rescuing as not cancelled",
+					slog.String("error", err.Error()),
+					slog.Int64("job_id", job.ID),
+				)
+				metadata = metadataWithCancelAttemptedAt{}
 			}
 
 			errorData, err := json.Marshal(rivertype.AttemptError{

@@ -104,9 +104,16 @@ func TestResumableSetStepTx(t *testing.T) {
 		require.Equal(t, "step2", metadata[rivercommon.MetadataKeyResumableStep])
 		require.Equal(t, map[string]any{"step2": map[string]any{"id": float64(123)}}, metadata[rivercommon.MetadataKeyResumableCursor])
 
+		// In-memory state and work metadata updates aren't touched so that a
+		// rolled back transaction's step isn't persisted when the attempt ends.
 		metadataUpdates, ok := jobexecutor.MetadataUpdatesFromWorkContext(ctx)
 		require.True(t, ok)
-		require.Equal(t, "step2", metadataUpdates[rivercommon.MetadataKeyResumableStep])
+		require.Empty(t, metadataUpdates)
+
+		state := mustResumableState(ctx)
+		require.Empty(t, state.CompletedStep)
+		require.Empty(t, state.Cursors)
+		require.True(t, state.PersistedInTx)
 	})
 
 	t.Run("ErrorIfNotRunning", func(t *testing.T) {

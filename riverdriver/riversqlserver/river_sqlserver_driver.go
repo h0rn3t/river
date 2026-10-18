@@ -35,6 +35,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -206,25 +207,23 @@ func (e *Executor) Begin(ctx context.Context) (riverdriver.ExecutorTx, error) {
 		return e.execTx.Begin(ctx)
 	}
 
-	conn, err := e.dbPool.Conn(ctx)
-	if err != nil {
-		return nil, err
+	executorTx, err := e.beginOnConn(ctx)
+	if errors.Is(err, driver.ErrBadConn) {
+		// go-mssqldb reports a connection the server has dropped (like every
+		// connection left in the pool by a failover) as bad, and database/sql
+		// discards it from the pool. Beginning on a connection of its own
+		// skips database/sql's retries of DB.BeginTx, so retry here, once more
+		// than there are idle connections so that the last attempt is on a new
+		// connection even if every idle one was bad.
+		for range e.dbPool.Stats().Idle + 1 {
+			if executorTx, err = e.beginOnConn(ctx); !errors.Is(err, driver.ErrBadConn) {
+				break
+			}
+		}
 	}
-
-	// database/sql rolls a transaction back as soon as its context is
-	// cancelled, but go-mssqldb then stops reading the rollback's response
-	// while database/sql hands the connection to the next query, which races
-	// the abandoned response. So the transaction isn't cancelled with ctx,
-	// and its Commit or Rollback reads the response in full before the
-	// connection goes back to the pool. Waiting for a connection still is.
-	tx, err := conn.BeginTx(context.WithoutCancel(ctx), nil)
 	if err != nil {
-		_ = conn.Close() // the begin error is the one worth returning
-		return nil, err
+		return nil, interpretError(err)
 	}
-
-	executorTx := &ExecutorTx{conn: conn, tx: tx}
-	executorTx.Executor = Executor{nil, templateReplaceWrapper{tx, e.dbtx.replacer}, e.driver, executorTx}
 	return executorTx, nil
 }
 
@@ -519,11 +518,11 @@ func (e *Executor) JobDeleteBefore(ctx context.Context, params *riverdriver.JobD
 
 	return e.execRowsAffected(schemaTemplateParam(ctx, params.Schema), query,
 		sql.Named("cancelled_do_delete", params.CancelledDoDelete),
-		sql.Named("cancelled_finalized_at_horizon", params.CancelledFinalizedAtHorizon.UTC()),
+		sql.Named("cancelled_finalized_at_horizon", timeParam(params.CancelledFinalizedAtHorizon)),
 		sql.Named("completed_do_delete", params.CompletedDoDelete),
-		sql.Named("completed_finalized_at_horizon", params.CompletedFinalizedAtHorizon.UTC()),
+		sql.Named("completed_finalized_at_horizon", timeParam(params.CompletedFinalizedAtHorizon)),
 		sql.Named("discarded_do_delete", params.DiscardedDoDelete),
-		sql.Named("discarded_finalized_at_horizon", params.DiscardedFinalizedAtHorizon.UTC()),
+		sql.Named("discarded_finalized_at_horizon", timeParam(params.DiscardedFinalizedAtHorizon)),
 		sql.Named("max", int64(params.Max)),
 		sql.Named("queues_excluded", queuesExcluded),
 		sql.Named("queues_included", queuesIncluded),
@@ -533,16 +532,21 @@ func (e *Executor) JobDeleteBefore(ctx context.Context, params *riverdriver.JobD
 func (e *Executor) JobDeleteMany(ctx context.Context, params *riverdriver.JobDeleteManyParams) ([]*rivertype.JobRow, error) {
 	// Positional arguments only because the named arguments of the where clause
 	// are rendered as positional arguments after them.
+	//
+	// Jobs are deleted through the same read that selects them, which locks
+	// them like JobGetAvailable does, so a job can't be moved to `running`
+	// between being selected and deleted. `READPAST` skips jobs locked by other
+	// clients like Postgres' `SKIP LOCKED`.
 	const query = `
-		DELETE FROM /* TEMPLATE: schema */river_job
-		OUTPUT ` + jobColumnsDeleted + `
-		WHERE id IN (
-			SELECT TOP (@p1) id
-			FROM /* TEMPLATE: schema */river_job
+		WITH jobs_to_delete AS (
+			SELECT TOP (@p1) *
+			FROM /* TEMPLATE: schema */river_job WITH (UPDLOCK, READPAST, ROWLOCK)
 			WHERE (/* TEMPLATE_BEGIN: where_clause */ 1 = 1 /* TEMPLATE_END */)
 				AND state <> N'running'
 			ORDER BY /* TEMPLATE_BEGIN: order_by_clause */ id /* TEMPLATE_END */
-		)`
+		)
+		DELETE FROM jobs_to_delete
+		OUTPUT ` + jobColumnsDeleted
 
 	jobs, err := queryJobs(schemaTemplateParam(jobListContext(ctx, (*riverdriver.JobListParams)(params)), params.Schema), e.dbtx, query, int64(params.Max))
 	if err != nil {
@@ -705,7 +709,7 @@ func (e *Executor) JobGetStuck(ctx context.Context, params *riverdriver.JobGetSt
 	jobs, err := queryJobs(schemaTemplateParam(ctx, params.Schema), e.dbtx, query,
 		sql.Named("after_id", params.AfterID),
 		sql.Named("max", int64(params.Max)),
-		sql.Named("stuck_horizon", params.StuckHorizon.UTC()),
+		sql.Named("stuck_horizon", timeParam(params.StuckHorizon)),
 	)
 	if err != nil {
 		return nil, err
@@ -1082,7 +1086,7 @@ func (e *Executor) JobRescueMany(ctx context.Context, params *riverdriver.JobRes
 
 	if _, err := e.dbtx.ExecContext(schemaTemplateParam(ctx, params.Schema), query,
 		sql.Named("jobs", string(jobsParam)),
-		sql.Named("stuck_horizon", params.StuckHorizon.UTC()),
+		sql.Named("stuck_horizon", timeParam(params.StuckHorizon)),
 	); err != nil {
 		return nil, interpretError(err)
 	}
@@ -1469,7 +1473,7 @@ func (e *Executor) LeaderAttemptReelect(ctx context.Context, params *riverdriver
 			AND leader_id = @leader_id`
 
 	return queryLeader(schemaTemplateParam(ctx, params.Schema), e.dbtx, query, append(ttlArgs(params.TTL),
-		sql.Named("elected_at", params.ElectedAt.UTC()),
+		sql.Named("elected_at", timeParam(params.ElectedAt)),
 		sql.Named("leader_id", params.LeaderID),
 		sql.Named("now", nullableTime(params.Now)),
 	)...)
@@ -1520,7 +1524,7 @@ func (e *Executor) LeaderResign(ctx context.Context, params *riverdriver.LeaderR
 			AND leader_id = @leader_id`
 
 	numResigned, err := e.execRowsAffected(schemaTemplateParam(ctx, params.Schema), query,
-		sql.Named("elected_at", params.ElectedAt.UTC()),
+		sql.Named("elected_at", timeParam(params.ElectedAt)),
 		sql.Named("leader_id", params.LeaderID),
 	)
 	return numResigned > 0, err
@@ -1615,6 +1619,26 @@ func (e *Executor) MigrationInsertManyAssumingMain(ctx context.Context, params *
 	return e.queryMigrations(schemaTemplateParam(ctx, params.Schema), query, sql.Named("versions", string(versions)))
 }
 
+// MigrationLock takes an exclusive application lock owned by the current
+// transaction, waiting for as long as it takes to be granted.
+func (e *Executor) MigrationLock(ctx context.Context, params *riverdriver.MigrationLockParams) error {
+	const query = `
+		DECLARE @resource nvarchar(255) = N'river_migrate:' + ` + schemaNameSQL + ` + N':' + @line;
+		DECLARE @result int;
+		EXEC @result = sp_getapplock
+			@Resource = @resource,
+			@LockMode = N'Exclusive',
+			@LockOwner = N'Transaction',
+			@LockTimeout = -1;
+		IF @result < 0
+			THROW 51000, N'failed to acquire River migration lock', 1;`
+
+	return e.Exec(ctx, query,
+		sql.Named("line", params.Line),
+		sql.Named("schema", params.Schema),
+	)
+}
+
 func (e *Executor) NotificationDeleteBefore(ctx context.Context, params *riverdriver.NotificationDeleteBeforeParams) (int, error) {
 	const query = `
 		DELETE FROM /* TEMPLATE: schema */river_notification
@@ -1626,7 +1650,7 @@ func (e *Executor) NotificationDeleteBefore(ctx context.Context, params *riverdr
 		)`
 
 	return e.execRowsAffected(schemaTemplateParam(ctx, params.Schema), query,
-		sql.Named("created_at_horizon", params.CreatedAtHorizon.UTC()),
+		sql.Named("created_at_horizon", timeParam(params.CreatedAtHorizon)),
 		sql.Named("max", int64(params.Max)),
 	)
 }
@@ -1694,7 +1718,7 @@ func (e *Executor) QueueDeleteExpired(ctx context.Context, params *riverdriver.Q
 
 	queueNames, err := e.queryStrings(schemaTemplateParam(ctx, params.Schema), query,
 		sql.Named("max", int64(params.Max)),
-		sql.Named("updated_at_horizon", params.UpdatedAtHorizon.UTC()),
+		sql.Named("updated_at_horizon", timeParam(params.UpdatedAtHorizon)),
 	)
 	if err != nil {
 		return nil, err
@@ -1909,6 +1933,33 @@ func (e *Executor) TableTruncate(ctx context.Context, params *riverdriver.TableT
 	return nil
 }
 
+// beginOnConn begins a transaction on a connection of its own, which goes back
+// to the pool once the transaction is committed or rolled back.
+func (e *Executor) beginOnConn(ctx context.Context) (*ExecutorTx, error) {
+	conn, err := e.dbPool.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// database/sql rolls a transaction back as soon as its context is
+	// cancelled, but go-mssqldb then stops reading the rollback's response
+	// while database/sql hands the connection to the next query, which races
+	// the abandoned response. So the transaction isn't cancelled with ctx,
+	// and its Commit or Rollback reads the response in full before the
+	// connection goes back to the pool. Waiting for a connection still is.
+	tx, err := conn.BeginTx(context.WithoutCancel(ctx), nil)
+	if err != nil {
+		// A bad connection has already been discarded, and closing it again
+		// only returns sql.ErrConnDone. The begin error is the one to return.
+		_ = conn.Close()
+		return nil, err
+	}
+
+	executorTx := &ExecutorTx{conn: conn, tx: tx}
+	executorTx.Executor = Executor{nil, templateReplaceWrapper{tx, e.dbtx.replacer}, e.driver, executorTx}
+	return executorTx, nil
+}
+
 // execRowsAffected runs a statement and returns the number of rows it affected.
 func (e *Executor) execRowsAffected(ctx context.Context, query string, args ...any) (int, error) {
 	res, err := e.dbtx.ExecContext(ctx, query, args...)
@@ -2081,7 +2132,23 @@ func (t *ExecutorSubTx) Rollback(ctx context.Context) error {
 		return errors.New("tx is closed") // mirrors pgx's behavior for this condition
 	}
 
-	return t.Exec(ctx, fmt.Sprintf("ROLLBACK TRANSACTION %s%02d", savepointPrefix, t.savepointNum))
+	err := t.Exec(ctx, fmt.Sprintf("ROLLBACK TRANSACTION %s%02d", savepointPrefix, t.savepointNum))
+	if err == nil {
+		return nil
+	}
+
+	// SQL Server rolls back the whole transaction itself on some errors (like
+	// when it's chosen as a deadlock victim), or leaves it uncommittable, and
+	// either way it can't be rolled back to a savepoint. database/sql still
+	// sees the transaction as open, and with go-mssqldb before v1.10.0,
+	// statements on it would then each commit by themselves, so it's rolled
+	// back in full to have them fail instead. XACT_STATE() is 1 for a
+	// transaction that's still active and committable.
+	var xactState int
+	if stateErr := t.dbtx.QueryRowContext(ctx, "SELECT XACT_STATE()").Scan(&xactState); stateErr != nil || xactState == 1 {
+		return err
+	}
+	return fmt.Errorf("transaction ended by the database, rolled back in full: %w", errors.Join(err, t.tx.Rollback()))
 }
 
 // jobRow is a row of jobColumns, before its JSON columns are decoded.
@@ -2328,6 +2395,11 @@ func emptyIfNil[T any](values []T) []T {
 }
 
 func interpretError(err error) error {
+	// database/sql doesn't export the error it returns for a closed pool, but
+	// returns it as is, so it's matched by its message.
+	if err != nil && err.Error() == "sql: database is closed" {
+		return riverdriver.ErrClosedPool
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return rivertype.ErrNotFound
 	}
@@ -2431,13 +2503,13 @@ func jobInsertMergeHint(jobs []*riverdriver.JobInsertFastParams) string {
 // jobListContext adds the clauses of a job list (or delete) to ctx for the
 // job list query templates, adapting them to T-SQL.
 func jobListContext(ctx context.Context, params *riverdriver.JobListParams) context.Context {
-	// Times are bound in UTC like all others (see nullableTime). Keep the
+	// Times are bound like all others (see timeParam). Keep the
 	// caller's arguments intact for repeated or concurrent use.
 	namedArgs := maps.Clone(params.NamedArgs)
 	for name, arg := range namedArgs {
 		switch arg := arg.(type) {
 		case time.Time:
-			namedArgs[name] = arg.UTC()
+			namedArgs[name] = timeParam(arg)
 		case *time.Time:
 			namedArgs[name] = nullableTime(arg)
 		}
@@ -2569,16 +2641,12 @@ func nullableHexString(data []byte) *string {
 	return new(hex.EncodeToString(data))
 }
 
-// nullableTime returns a time in UTC, or nil (SQL NULL) for a nil time.
-//
-// Times are bound in UTC because go-mssqldb sends them as `datetimeoffset`, and
-// casting a `datetimeoffset` to `datetime2` (the type of River's columns, which
-// hold UTC) drops its offset rather than converting to UTC.
+// nullableTime returns a time with timeParam, or nil (SQL NULL) for a nil time.
 func nullableTime(t *time.Time) any {
 	if t == nil {
 		return nil
 	}
-	return t.UTC()
+	return timeParam(*t)
 }
 
 // nullableTimeString formats a time with timeString, or returns nil for a nil
@@ -2686,6 +2754,19 @@ func schemaTemplateParam(ctx context.Context, schema string) context.Context {
 	return sqlctemplate.WithReplacements(ctx, map[string]sqlctemplate.Replacement{
 		"schema": {Value: schema, Stable: true},
 	}, nil)
+}
+
+// timeParam returns a time to bind as a parameter: in UTC and truncated to
+// microseconds.
+//
+// Times are bound in UTC because go-mssqldb sends them as `datetimeoffset`, and
+// casting a `datetimeoffset` to `datetime2` (the type of River's columns, which
+// hold UTC) drops its offset rather than converting to UTC. They're truncated
+// because `datetimeoffset` has more precision than River's `datetime2(6)`
+// columns, and SQL Server rounds when converting to less precision, while
+// Postgres and the times in JSON parameters (see timeString) truncate.
+func timeParam(t time.Time) time.Time {
+	return t.UTC().Truncate(time.Microsecond)
 }
 
 // timeString formats a time for a JSON parameter that OPENJSON decodes as a

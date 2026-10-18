@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -94,12 +95,46 @@ func (c *beginTestConnector) Connect(context.Context) (driver.Conn, error) {
 	return c.connectFunc()
 }
 
+func TestExecutorClosedPool(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// The pool is closed before it's used, so it never connects.
+	dbPool := sql.OpenDB(&beginTestConnector{})
+	require.NoError(t, dbPool.Close())
+	exec := New(dbPool).GetExecutor()
+
+	t.Run("JobGetAvailable", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := exec.JobGetAvailable(ctx, &riverdriver.JobGetAvailableParams{MaxToLock: 1, Queue: "default"})
+		require.ErrorIs(t, err, riverdriver.ErrClosedPool)
+	})
+
+	t.Run("JobSetStateIfRunningMany", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := exec.JobSetStateIfRunningMany(ctx, &riverdriver.JobSetStateIfRunningManyParams{ID: []int64{1}})
+		require.ErrorIs(t, err, riverdriver.ErrClosedPool)
+	})
+}
+
 func TestInterpretError(t *testing.T) {
 	t.Parallel()
 
 	require.EqualError(t, interpretError(errors.New("an error")), "an error")
 	require.ErrorIs(t, interpretError(sql.ErrNoRows), rivertype.ErrNotFound)
 	require.NoError(t, interpretError(nil))
+
+	err := interpretError(sql.ErrConnDone)
+	require.ErrorIs(t, err, riverdriver.ErrClosedPool)
+	require.ErrorIs(t, err, sql.ErrConnDone)
+
+	closedErr := fmt.Errorf("error beginning transaction: %w", errors.New("sql: database is closed"))
+	err = interpretError(closedErr)
+	require.ErrorIs(t, err, riverdriver.ErrClosedPool)
+	require.ErrorIs(t, err, closedErr)
 }
 
 func TestTimeString(t *testing.T) {

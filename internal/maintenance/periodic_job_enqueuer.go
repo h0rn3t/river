@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -19,8 +21,10 @@ import (
 	"github.com/h0rn3t/river/rivershared/startstop"
 	"github.com/h0rn3t/river/rivershared/testsignal"
 	"github.com/h0rn3t/river/rivershared/util/maputil"
+	"github.com/h0rn3t/river/rivershared/util/serviceutil"
 	"github.com/h0rn3t/river/rivershared/util/sliceutil"
 	"github.com/h0rn3t/river/rivershared/util/testutil"
+	"github.com/h0rn3t/river/rivershared/util/timeoututil"
 	"github.com/h0rn3t/river/rivershared/util/timeutil"
 	"github.com/h0rn3t/river/rivertype"
 )
@@ -215,22 +219,28 @@ func (s *PeriodicJobEnqueuer) AddManySafely(periodicJobs []*PeriodicJob) ([]rive
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Validate every job and register IDs into a copy first so that an invalid
+	// or duplicate job partway through leaves the enqueuer unchanged.
 	handles := make([]rivertype.PeriodicJobHandle, len(periodicJobs))
+	periodicJobIDs := maps.Clone(s.periodicJobIDs)
 
 	for i, periodicJob := range periodicJobs {
 		if err := periodicJob.validate(); err != nil {
 			return nil, err
 		}
 
-		handles[i] = s.nextHandle
+		handles[i] = s.nextHandle + rivertype.PeriodicJobHandle(i)
 
-		if err := addUniqueID(s.periodicJobIDs, periodicJob.ID, handles[i]); err != nil {
+		if err := addUniqueID(periodicJobIDs, periodicJob.ID, handles[i]); err != nil {
 			return nil, err
 		}
-
-		s.periodicJobs[handles[i]] = periodicJob
-		s.nextHandle++
 	}
+
+	s.periodicJobIDs = periodicJobIDs
+	for i, periodicJob := range periodicJobs {
+		s.periodicJobs[handles[i]] = periodicJob
+	}
+	s.nextHandle += rivertype.PeriodicJobHandle(len(periodicJobs))
 
 	select {
 	case s.recalculateNextRun <- struct{}{}:
@@ -382,29 +392,41 @@ func (s *PeriodicJobEnqueuer) Start(ctx context.Context) error {
 
 		var lastHandleSeen rivertype.PeriodicJobHandle = -1 // so handle 0 is considered
 
-		validateInsertRunOnStartAndScheduleNewlyAdded := func() {
-			s.mu.RLock()
-			defer s.mu.RUnlock()
+		// Periodic jobs are collected under s.mu, but user functions like
+		// ConstructorFunc and ScheduleFunc are invoked after releasing it so
+		// they're free to add or remove periodic jobs. A job's nextRunAt is
+		// only accessed from this goroutine.
+		validateInsertRunOnStartAndScheduleNewlyAdded := func() error {
+			newPeriodicJobs := func() []*PeriodicJob {
+				s.mu.RLock()
+				defer s.mu.RUnlock()
+
+				// Handle periodic jobs in sorted order so we can correctly
+				// account for the most recently added one that we've seen.
+				sortedPeriodicJobHandles := maputil.Keys(s.periodicJobs)
+				slices.Sort(sortedPeriodicJobHandles)
+
+				var newPeriodicJobs []*PeriodicJob
+				for _, handle := range sortedPeriodicJobHandles {
+					if handle <= lastHandleSeen {
+						continue
+					}
+
+					lastHandleSeen = handle
+					newPeriodicJobs = append(newPeriodicJobs, s.periodicJobs[handle])
+				}
+				return newPeriodicJobs
+			}()
 
 			var (
 				insertParamsMany        []*rivertype.JobInsertParams
 				now                     = s.Time.Now()
 				periodicJobUpsertParams = &riverpilot.PeriodicJobUpsertManyParams{Schema: s.Config.Schema}
+				runOnStartJobs          []*PeriodicJob
 			)
 
-			// Handle periodic jobs in sorted order so we can correctly account
-			// for the most recently added one that we've seen.
-			sortedPeriodicJobHandles := maputil.Keys(s.periodicJobs)
-			slices.Sort(sortedPeriodicJobHandles)
-
-			for _, handle := range sortedPeriodicJobHandles {
-				if handle <= lastHandleSeen {
-					continue
-				}
-
-				lastHandleSeen = handle
-
-				periodicJob := s.periodicJobs[handle].mustValidate()
+			for _, periodicJob := range newPeriodicJobs {
+				periodicJob.mustValidate()
 
 				if nextRunAt, ok := initialPeriodicJobsMap[periodicJob.ID]; periodicJob.ID != "" && ok {
 					periodicJob.nextRunAt = nextRunAt
@@ -427,68 +449,125 @@ func (s *PeriodicJobEnqueuer) Start(ctx context.Context) error {
 
 				if insertParams, ok := s.insertParamsFromConstructor(ctx, periodicJob.ID, periodicJob.ConstructorFunc, now); ok {
 					insertParamsMany = append(insertParamsMany, insertParams)
+					runOnStartJobs = append(runOnStartJobs, periodicJob)
 				}
 			}
 
-			s.insertBatch(ctx, insertParamsMany, periodicJobUpsertParams)
+			if err := s.insertBatch(ctx, insertParamsMany, periodicJobUpsertParams); err != nil {
+				// Make RunOnStart jobs due now so that the next run of due
+				// jobs retries their inserts instead of losing them.
+				for _, periodicJob := range runOnStartJobs {
+					periodicJob.nextRunAt = now
+				}
+				return err
+			}
 
 			if len(insertParamsMany) > 0 {
 				s.Logger.DebugContext(ctx, s.Name+": Inserted RunOnStart jobs", "num_jobs", len(insertParamsMany))
 			}
+			return nil
+		}
+
+		insertDueJobs := func() error {
+			now := s.Time.Now()
+
+			// Add a small margin to the current time so we're not only
+			// running jobs that are already ready, but also ones ready at
+			// this exact moment or ready in the very near future.
+			nowWithMargin := now.Add(100 * time.Millisecond)
+
+			dueJobs := func() []*PeriodicJob {
+				s.mu.RLock()
+				defer s.mu.RUnlock()
+
+				var dueJobs []*PeriodicJob
+				for _, periodicJob := range s.periodicJobs {
+					if periodicJob.nextRunAt.IsZero() || !periodicJob.nextRunAt.Before(nowWithMargin) {
+						continue
+					}
+					dueJobs = append(dueJobs, periodicJob)
+				}
+				return dueJobs
+			}()
+
+			var (
+				insertParamsMany        []*rivertype.JobInsertParams
+				nextRunAts              = make([]time.Time, len(dueJobs))
+				periodicJobUpsertParams = &riverpilot.PeriodicJobUpsertManyParams{Schema: s.Config.Schema}
+			)
+
+			for i, periodicJob := range dueJobs {
+				if insertParams, ok := s.insertParamsFromConstructor(ctx, periodicJob.ID, periodicJob.ConstructorFunc, periodicJob.nextRunAt); ok {
+					insertParamsMany = append(insertParamsMany, insertParams)
+				}
+
+				// Although we may have inserted a new job a little
+				// preemptively due to the margin applied above, try to stay
+				// as true as possible to the original schedule by using the
+				// original run time when calculating the next one.
+				nextRunAts[i] = periodicJob.ScheduleFunc(periodicJob.nextRunAt)
+
+				// A job that's fallen more than one run behind (e.g. after
+				// downtime) is inserted once rather than once per missed run.
+				if !nextRunAts[i].After(now) {
+					nextRunAts[i] = periodicJob.ScheduleFunc(now)
+				}
+
+				if periodicJob.ID != "" {
+					periodicJobUpsertParams.Jobs = append(periodicJobUpsertParams.Jobs, &riverpilot.PeriodicJobUpsertParams{
+						ID:        periodicJob.ID,
+						NextRunAt: nextRunAts[i],
+						UpdatedAt: s.Time.Now(),
+					})
+				}
+			}
+
+			// Schedules only advance once their inserts are committed so that
+			// a failed insert is retried rather than silently skipped.
+			if err := s.insertBatch(ctx, insertParamsMany, periodicJobUpsertParams); err != nil {
+				return err
+			}
+
+			for i, periodicJob := range dueJobs {
+				periodicJob.nextRunAt = nextRunAts[i]
+			}
+			return nil
+		}
+
+		// After a failed insert, the loop waits out a backoff instead of the
+		// time until the next run, which is zero for the jobs left due.
+		var numInsertFailures int
+		timeUntilNextRunOrRetry := func(insertErr error) time.Duration {
+			if insertErr == nil {
+				numInsertFailures = 0
+				return s.timeUntilNextRun()
+			}
+
+			numInsertFailures++
+			sleepDuration := serviceutil.ExponentialBackoff(numInsertFailures, serviceutil.MaxAttemptsBeforeResetDefault)
+			if ctx.Err() == nil {
+				s.Logger.ErrorContext(ctx, s.Name+": Error inserting periodic jobs (will retry after backoff)",
+					slog.Int("attempt", numInsertFailures),
+					slog.String("error", insertErr.Error()),
+					slog.String("sleep_duration", sleepDuration.String()),
+				)
+			}
+			return sleepDuration
 		}
 
 		// Run any jobs that need to run on start and calculate initial runs.
-		validateInsertRunOnStartAndScheduleNewlyAdded()
+		insertErr := validateInsertRunOnStartAndScheduleNewlyAdded()
 
 		s.TestSignals.EnteredLoop.Signal(struct{}{})
 
-		timerUntilNextRun := time.NewTimer(s.timeUntilNextRun())
+		timerUntilNextRun := time.NewTimer(timeUntilNextRunOrRetry(insertErr))
 
 		for {
+			insertErr = nil
+
 			select {
 			case <-timerUntilNextRun.C:
-				var (
-					insertParamsMany        []*rivertype.JobInsertParams
-					periodicJobUpsertParams = &riverpilot.PeriodicJobUpsertManyParams{Schema: s.Config.Schema}
-				)
-
-				now := s.Time.Now()
-
-				// Add a small margin to the current time so we're not only
-				// running jobs that are already ready, but also ones ready at
-				// this exact moment or ready in the very near future.
-				nowWithMargin := now.Add(100 * time.Millisecond)
-
-				func() {
-					s.mu.RLock()
-					defer s.mu.RUnlock()
-
-					for _, periodicJob := range s.periodicJobs {
-						if periodicJob.nextRunAt.IsZero() || !periodicJob.nextRunAt.Before(nowWithMargin) {
-							continue
-						}
-
-						if insertParams, ok := s.insertParamsFromConstructor(ctx, periodicJob.ID, periodicJob.ConstructorFunc, periodicJob.nextRunAt); ok {
-							insertParamsMany = append(insertParamsMany, insertParams)
-						}
-
-						// Although we may have inserted a new job a little
-						// preemptively due to the margin applied above, try to stay
-						// as true as possible to the original schedule by using the
-						// original run time when calculating the next one.
-						periodicJob.nextRunAt = periodicJob.ScheduleFunc(periodicJob.nextRunAt)
-
-						if periodicJob.ID != "" {
-							periodicJobUpsertParams.Jobs = append(periodicJobUpsertParams.Jobs, &riverpilot.PeriodicJobUpsertParams{
-								ID:        periodicJob.ID,
-								NextRunAt: periodicJob.nextRunAt,
-								UpdatedAt: s.Time.Now(),
-							})
-						}
-					}
-				}()
-
-				s.insertBatch(ctx, insertParamsMany, periodicJobUpsertParams)
+				insertErr = insertDueJobs()
 
 			case <-s.recalculateNextRun:
 				if !timerUntilNextRun.Stop() {
@@ -507,20 +586,22 @@ func (s *PeriodicJobEnqueuer) Start(ctx context.Context) error {
 
 			// Insert any RunOnStart initial runs for new jobs that've been
 			// added since the last run loop.
-			validateInsertRunOnStartAndScheduleNewlyAdded()
+			insertErr = errors.Join(insertErr, validateInsertRunOnStartAndScheduleNewlyAdded())
 
 			// Reset the timer after the insert loop has finished so it's
 			// paused during work. Makes its firing more deterministic.
-			timerUntilNextRun.Reset(s.timeUntilNextRun())
+			timerUntilNextRun.Reset(timeUntilNextRunOrRetry(insertErr))
 		}
 	}()
 
 	return nil
 }
 
-func (s *PeriodicJobEnqueuer) insertBatch(ctx context.Context, insertParamsMany []*rivertype.JobInsertParams, periodicJobUpsertParams *riverpilot.PeriodicJobUpsertManyParams) {
+// insertBatch inserts jobs and upserts periodic job next run times in a single
+// transaction, returning an error if anything wasn't committed.
+func (s *PeriodicJobEnqueuer) insertBatch(ctx context.Context, insertParamsMany []*rivertype.JobInsertParams, periodicJobUpsertParams *riverpilot.PeriodicJobUpsertManyParams) error {
 	if len(insertParamsMany) < 1 && len(periodicJobUpsertParams.Jobs) < 1 {
-		return
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, riversharedmaintenance.TimeoutDefault)
@@ -528,30 +609,24 @@ func (s *PeriodicJobEnqueuer) insertBatch(ctx context.Context, insertParamsMany 
 
 	tx, err := s.exec.Begin(ctx)
 	if err != nil {
-		s.Logger.ErrorContext(ctx, s.Name+": Error starting transaction", "error", err.Error())
-		return
+		return fmt.Errorf("error starting transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
 	if len(insertParamsMany) > 0 {
 		if _, err := s.Config.Insert(ctx, tx, insertParamsMany); err != nil {
-			s.Logger.ErrorContext(ctx, s.Name+": Error inserting periodic jobs",
-				"error", err.Error(), "num_jobs", len(insertParamsMany))
-			return
+			return fmt.Errorf("error inserting %d periodic job(s): %w", len(insertParamsMany), err)
 		}
 	}
 
 	if len(periodicJobUpsertParams.Jobs) > 0 {
 		if _, err = s.Config.Pilot.PeriodicJobUpsertMany(ctx, tx, periodicJobUpsertParams); err != nil {
-			s.Logger.ErrorContext(ctx, s.Name+": Error upserting periodic job next run times",
-				"error", err.Error(), "num_jobs", len(insertParamsMany), "num_next_run_at_upserts", len(periodicJobUpsertParams.Jobs))
-			return
+			return fmt.Errorf("error upserting %d periodic job next run time(s): %w", len(periodicJobUpsertParams.Jobs), err)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		s.Logger.ErrorContext(ctx, s.Name+": Error committing transaction", "error", err.Error())
-		return
+		return fmt.Errorf("error committing transaction: %w", err)
 	}
 
 	if len(insertParamsMany) > 0 {
@@ -560,6 +635,8 @@ func (s *PeriodicJobEnqueuer) insertBatch(ctx context.Context, insertParamsMany 
 	if len(periodicJobUpsertParams.Jobs) > 0 {
 		s.TestSignals.PeriodicJobUpserted.Signal(struct{}{})
 	}
+
+	return nil
 }
 
 func (s *PeriodicJobEnqueuer) insertParamsFromConstructor(ctx context.Context, periodicJobID string, constructorFunc func() (*rivertype.JobInsertParams, error), scheduledAt time.Time) (*rivertype.JobInsertParams, bool) {
@@ -609,22 +686,29 @@ func (s *PeriodicJobEnqueuer) periodicJobKeepAliveAndReapPeriodically(ctx contex
 				return
 
 			case <-ticker.C:
-				func() {
+				// Copy IDs so the lock isn't held across the database call,
+				// where it would block writers and, through them, the run loop.
+				periodicJobIDs := func() []string {
 					s.mu.RLock()
 					defer s.mu.RUnlock()
 
-					if len(s.periodicJobIDs) > 0 {
-						if _, err := s.Config.Pilot.PeriodicJobKeepAliveAndReap(ctx, s.exec, &riverpilot.PeriodicJobKeepAliveAndReapParams{
-							ID:     maputil.Keys(s.periodicJobIDs),
-							Schema: s.Config.Schema,
-						}); err != nil {
-							s.Logger.ErrorContext(ctx, s.Name+": Error executing periodic job keep alive and reap", "error", err.Error())
-							return
-						}
-					}
-
-					s.TestSignals.PeriodicJobKeepAliveAndReap.Signal(struct{}{})
+					return maputil.Keys(s.periodicJobIDs)
 				}()
+
+				if len(periodicJobIDs) > 0 {
+					if err := timeoututil.WithTimeout(ctx, riversharedmaintenance.TimeoutDefault, s.Name+".periodicJobKeepAliveAndReap", func(ctx context.Context) error {
+						_, err := s.Config.Pilot.PeriodicJobKeepAliveAndReap(ctx, s.exec, &riverpilot.PeriodicJobKeepAliveAndReapParams{
+							ID:     periodicJobIDs,
+							Schema: s.Config.Schema,
+						})
+						return err
+					}); err != nil {
+						s.Logger.ErrorContext(ctx, s.Name+": Error executing periodic job keep alive and reap", "error", err.Error())
+						continue
+					}
+				}
+
+				s.TestSignals.PeriodicJobKeepAliveAndReap.Signal(struct{}{})
 			}
 		}
 	}()

@@ -238,6 +238,42 @@ func TestSortedFieldsWithTag(t *testing.T) {
 			expectedFields: []string{"base_field", "own_field"},
 		},
 		{
+			name: "AnonymousEmbeddedStructJSONOmitted",
+			argsFunc: func() rivertype.JobArgs {
+				type EmbeddedBase struct {
+					BaseField string `json:"base_field" river:"unique"`
+				}
+
+				type WithOmittedEmbeddedArgs struct {
+					testutil.JobArgsReflectKind[WithOmittedEmbeddedArgs]
+					EmbeddedBase `json:"-"`
+
+					OwnField string `json:"own_field" river:"unique"`
+				}
+
+				return WithOmittedEmbeddedArgs{}
+			},
+			tagValue:       "unique",
+			expectedFields: []string{"own_field"},
+		},
+		{
+			name: "AnonymousEmbeddedStructWithJSONName",
+			argsFunc: func() rivertype.JobArgs {
+				type EmbeddedBase struct {
+					BaseField string `json:"base_field" river:"unique"`
+				}
+
+				type WithNamedEmbeddedArgs struct {
+					testutil.JobArgsReflectKind[WithNamedEmbeddedArgs]
+					EmbeddedBase `json:"base"`
+				}
+
+				return WithNamedEmbeddedArgs{}
+			},
+			tagValue:       "unique",
+			expectedFields: []string{"base.base_field"},
+		},
+		{
 			name: "DeeplyNestedStruct",
 			argsFunc: func() rivertype.JobArgs {
 				type DeepNested struct {
@@ -258,6 +294,45 @@ func TestSortedFieldsWithTag(t *testing.T) {
 			},
 			tagValue:       "unique",
 			expectedFields: []string{"middle.deep.value"},
+		},
+		{
+			name: "RecursiveType",
+			argsFunc: func() rivertype.JobArgs {
+				type Node struct {
+					Name string `json:"name" river:"unique"`
+					Next *Node  `json:"next"`
+				}
+
+				type RecursiveArgs struct {
+					testutil.JobArgsReflectKind[RecursiveArgs]
+
+					Head Node `json:"head"`
+				}
+
+				return RecursiveArgs{}
+			},
+			tagValue:       "unique",
+			expectedFields: []string{"head.name"},
+		},
+		{
+			name: "SameStructTypeInSiblingFields",
+			argsFunc: func() rivertype.JobArgs {
+				type Addr struct {
+					City   string `json:"city"   river:"unique"`
+					Street string `json:"street"`
+				}
+
+				type SiblingArgs struct {
+					testutil.JobArgsReflectKind[SiblingArgs]
+
+					From Addr  `json:"from"`
+					To   *Addr `json:"to"`
+				}
+
+				return SiblingArgs{}
+			},
+			tagValue:       "unique",
+			expectedFields: []string{"from.city", "to.city"},
 		},
 	}
 

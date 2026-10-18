@@ -88,7 +88,14 @@ func NewWithPgxListener(dbPool *sql.DB, listenerPool *pgxpool.Pool) *Driver {
 	}
 }
 
-const argPlaceholder = "$"
+const (
+	argPlaceholder = "$"
+
+	// pgErrCodeFeatureNotSupported is Postgres' `feature_not_supported` error
+	// code, which Postgres-compatible databases raise for features they don't
+	// implement.
+	pgErrCodeFeatureNotSupported = "0A000"
+)
 
 func (d *Driver) ArgPlaceholder() string { return argPlaceholder }
 func (d *Driver) DatabaseName() string   { return riverdriver.DatabaseNamePostgres }
@@ -170,22 +177,22 @@ func (e *Executor) Begin(ctx context.Context) (riverdriver.ExecutorTx, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ExecutorTx{Executor: Executor{nil, templateReplaceWrapper{tx, &e.driver.replacer}, e.driver}, tx: tx}, nil
+	// Take the replacer from the executor rather than the driver because the
+	// driver may be nil (see UnwrapExecutor).
+	return &ExecutorTx{Executor: Executor{nil, templateReplaceWrapper{tx, e.dbtx.replacer}, e.driver}, tx: tx}, nil
 }
 
 func (e *Executor) ColumnExists(ctx context.Context, params *riverdriver.ColumnExistsParams) (bool, error) {
-	// Schema injection is a bit different on this one because we're querying a table with a schema name.
-	schema := "CURRENT_SCHEMA"
+	// Like TableExists, the table name is a parameter, and is resolved through
+	// `search_path` if no schema was given.
+	schemaAndTable := params.Table
 	if params.Schema != "" {
-		schema = "'" + params.Schema + "'"
+		schemaAndTable = dbutil.SafeIdentifier(params.Schema) + "." + schemaAndTable
 	}
-	ctx = sqlctemplate.WithReplacements(ctx, map[string]sqlctemplate.Replacement{
-		"schema": {Value: schema, Stable: true},
-	}, nil)
 
 	exists, err := dbsqlc.New().ColumnExists(ctx, e.dbtx, &dbsqlc.ColumnExistsParams{
-		ColumnName: params.Column,
-		TableName:  params.Table,
+		ColumnName:     params.Column,
+		SchemaAndTable: schemaAndTable,
 	})
 	return exists, interpretError(err)
 }
@@ -436,8 +443,14 @@ func (e *Executor) JobInsertFastMany(ctx context.Context, params *riverdriver.Jo
 		uniqueNonce = randutil.Hex(8)
 	}
 
+	idSequence := "river_job_id_seq"
+	if params.Schema != "" {
+		idSequence = dbutil.SafeIdentifier(params.Schema) + "." + idSequence
+	}
+
 	insertJobsParams := &dbsqlc.JobInsertFastManyParams{
 		ID:           make([]int64, len(params.Jobs)),
+		IDSequence:   idSequence,
 		Args:         make([]string, len(params.Jobs)),
 		CreatedAt:    make([]time.Time, len(params.Jobs)),
 		Kind:         make([]string, len(params.Jobs)),
@@ -978,6 +991,36 @@ func (e *Executor) MigrationInsertManyAssumingMain(ctx context.Context, params *
 	}), nil
 }
 
+func (e *Executor) MigrationLock(ctx context.Context, params *riverdriver.MigrationLockParams) error {
+	// Take the lock in a savepoint so that if the database doesn't support
+	// advisory locks (Yugabyte may have them disabled), the enclosing
+	// transaction isn't aborted and migrations proceed unserialized as they
+	// did before locking was introduced.
+	const savepoint = "river_migration_lock"
+	if _, err := e.dbtx.ExecContext(ctx, "SAVEPOINT "+savepoint); err != nil {
+		return interpretError(err)
+	}
+
+	if err := dbsqlc.New().RiverMigrationLock(ctx, e.dbtx, &dbsqlc.RiverMigrationLockParams{
+		Line:   params.Line,
+		Schema: sql.NullString{String: params.Schema, Valid: params.Schema != ""},
+	}); err != nil {
+		if _, rollbackErr := e.dbtx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+savepoint); rollbackErr != nil {
+			return errors.Join(interpretError(err), rollbackErr)
+		}
+		if sqlStateErr, ok := errors.AsType[interface {
+			error
+			SQLState() string
+		}](err); ok && sqlStateErr.SQLState() == pgErrCodeFeatureNotSupported {
+			return nil
+		}
+		return interpretError(err)
+	}
+
+	_, err := e.dbtx.ExecContext(ctx, "RELEASE SAVEPOINT "+savepoint)
+	return interpretError(err)
+}
+
 func (e *Executor) NotificationDeleteBefore(ctx context.Context, params *riverdriver.NotificationDeleteBeforeParams) (int, error) {
 	numDeleted, err := dbsqlc.New().NotificationDeleteBefore(schemaTemplateParam(ctx, params.Schema), e.dbtx, &dbsqlc.NotificationDeleteBeforeParams{
 		CreatedAtHorizon: params.CreatedAtHorizon,
@@ -1099,7 +1142,9 @@ func (e *Executor) QueueResume(ctx context.Context, params *riverdriver.QueueRes
 
 func (e *Executor) QueueUpdate(ctx context.Context, params *riverdriver.QueueUpdateParams) (*rivertype.Queue, error) {
 	queue, err := dbsqlc.New().QueueUpdate(schemaTemplateParam(ctx, params.Schema), e.dbtx, &dbsqlc.QueueUpdateParams{
-		Metadata:         string(params.Metadata),
+		// Metadata is ignored unless MetadataDoUpdate is set, but Postgres
+		// still has to parse it as jsonb, which an empty string isn't.
+		Metadata:         string(sliceutil.FirstNonEmpty(params.Metadata, []byte("{}"))),
 		MetadataDoUpdate: params.MetadataDoUpdate,
 		Name:             params.Name,
 	})
@@ -1195,7 +1240,7 @@ type ExecutorTx struct {
 
 func (t *ExecutorTx) Begin(ctx context.Context) (riverdriver.ExecutorTx, error) {
 	return (&ExecutorSubTx{
-		Executor:     Executor{nil, templateReplaceWrapper{t.tx, &t.driver.replacer}, t.driver},
+		Executor:     Executor{nil, templateReplaceWrapper{t.tx, t.dbtx.replacer}, t.driver},
 		beginOnce:    &savepointutil.BeginOnlyOnce{},
 		savepointNum: 0,
 		tx:           t.tx,
@@ -1232,7 +1277,7 @@ func (t *ExecutorSubTx) Begin(ctx context.Context) (riverdriver.ExecutorTx, erro
 		return nil, err
 	}
 
-	return &ExecutorSubTx{Executor: Executor{nil, templateReplaceWrapper{t.tx, &t.driver.replacer}, t.driver}, savepointNum: nextSavepointNum, beginOnce: savepointutil.NewBeginOnlyOnce(t.beginOnce), tx: t.tx}, nil
+	return &ExecutorSubTx{Executor: Executor{nil, templateReplaceWrapper{t.tx, t.dbtx.replacer}, t.driver}, savepointNum: nextSavepointNum, beginOnce: savepointutil.NewBeginOnlyOnce(t.beginOnce), tx: t.tx}, nil
 }
 
 func (t *ExecutorSubTx) Commit(ctx context.Context) error {
@@ -1266,6 +1311,11 @@ func (t *ExecutorSubTx) Rollback(ctx context.Context) error {
 }
 
 func interpretError(err error) error {
+	// database/sql returns an unexported error when the pool is closed, so it
+	// has to be matched on its message.
+	if errors.Is(err, sql.ErrConnDone) || (err != nil && strings.Contains(err.Error(), "sql: database is closed")) {
+		return riverdriver.ErrClosedPool
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return rivertype.ErrNotFound
 	}

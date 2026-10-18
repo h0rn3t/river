@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/h0rn3t/river/internal/execution"
@@ -80,6 +81,14 @@ func JobCompleteTx[TDriver riverdriver.Driver[TTx], TTx any, TArgs JobArgs](ctx 
 
 		return nil, rivertype.ErrNotFound
 	}
+
+	// Rows for jobs that weren't running in the database (e.g. they were
+	// cancelled or rescued in the meantime) are returned without having been
+	// completed.
+	if rows[0].State != rivertype.JobStateCompleted {
+		return nil, fmt.Errorf("job %d couldn't be completed because it's no longer running (state is %q)", rows[0].ID, rows[0].State)
+	}
+
 	updatedJob := &Job[TArgs]{JobRow: rows[0]}
 
 	if err := json.Unmarshal(updatedJob.EncodedArgs, &updatedJob.Args); err != nil {

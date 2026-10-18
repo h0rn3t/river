@@ -11,6 +11,7 @@ import (
 
 	"github.com/h0rn3t/river"
 	"github.com/h0rn3t/river/riverdbtest"
+	"github.com/h0rn3t/river/riverdriver"
 	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
 	"github.com/h0rn3t/river/rivershared/riversharedtest"
 	"github.com/h0rn3t/river/rivershared/util/testutil"
@@ -424,6 +425,21 @@ func TestRequireNotInserted(t *testing.T) {
 		}
 	}
 
+	t.Run("FailsWithSchemaOnlyOpts", func(t *testing.T) {
+		t.Parallel()
+
+		riverClient, bundle := setup(t)
+
+		_, err := riverClient.Insert(ctx, Job1Args{String: "foo"}, nil)
+		require.NoError(t, err)
+
+		requireNotInserted(ctx, bundle.mockT, bundle.driver, &Job1Args{}, bundle.schemaOpts)
+		require.True(t, bundle.mockT.Failed)
+		require.Equal(t,
+			failureString("1 jobs found with kind, but expected to find none: job1")+"\n",
+			bundle.mockT.LogOutput())
+	})
+
 	t.Run("VerifiesNotInsert", func(t *testing.T) {
 		t.Parallel()
 
@@ -742,7 +758,106 @@ func TestRequireNotInsertedTx(t *testing.T) {
 				failureString("Job with kind 'job2' priority equal to excluded %d", 3)+"\n",
 				mockT.LogOutput())
 		})
+
+		t.Run("EmptyFails", func(t *testing.T) {
+			t.Parallel()
+
+			riverClient, bundle := setup(t)
+
+			_ = insertJob(riverClient, bundle)
+
+			mockT := testutil.NewMockT(t)
+			requireNotInsertedTx[*riverpgxv5.Driver](ctx, mockT, bundle.tx, &Job2Args{}, emptyOpts())
+			require.True(t, mockT.Failed)
+			require.Equal(t,
+				failureString("1 jobs found with kind, but expected to find none: job2")+"\n",
+				mockT.LogOutput())
+		})
 	})
+}
+
+// Exercises requireNotInsertedErr against a stub executor so that its handling
+// of options is verified without a database.
+func TestRequireNotInsertedErrOpts(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	type testBundle struct {
+		exec  *jobGetByKindManyExecutorStub
+		mockT *testutil.MockT
+	}
+
+	setup := func(t *testing.T) *testBundle {
+		t.Helper()
+
+		return &testBundle{
+			exec: &jobGetByKindManyExecutorStub{
+				jobRows: []*rivertype.JobRow{
+					{EncodedArgs: []byte(`{"string":"foo"}`), ID: 1, Kind: (Job1Args{}).Kind(), Priority: 1},
+				},
+			},
+			mockT: testutil.NewMockT(t),
+		}
+	}
+
+	t.Run("FailsWithEmptyOpts", func(t *testing.T) {
+		t.Parallel()
+
+		bundle := setup(t)
+
+		err := requireNotInsertedErr[*riverpgxv5.Driver](ctx, bundle.mockT, bundle.exec, &Job1Args{}, &RequireInsertedOpts{})
+		require.NoError(t, err)
+		require.True(t, bundle.mockT.Failed)
+		require.Equal(t,
+			failureString("1 jobs found with kind, but expected to find none: job1")+"\n",
+			bundle.mockT.LogOutput())
+	})
+
+	t.Run("FailsWithNilOpts", func(t *testing.T) {
+		t.Parallel()
+
+		bundle := setup(t)
+
+		err := requireNotInsertedErr[*riverpgxv5.Driver](ctx, bundle.mockT, bundle.exec, &Job1Args{}, nil)
+		require.NoError(t, err)
+		require.True(t, bundle.mockT.Failed)
+	})
+
+	t.Run("FailsWithSchemaOnlyOpts", func(t *testing.T) {
+		t.Parallel()
+
+		bundle := setup(t)
+
+		err := requireNotInsertedErr[*riverpgxv5.Driver](ctx, bundle.mockT, bundle.exec, &Job1Args{}, &RequireInsertedOpts{Schema: "custom_schema"})
+		require.NoError(t, err)
+		require.True(t, bundle.mockT.Failed)
+		require.Equal(t, "custom_schema", bundle.exec.schema)
+	})
+
+	t.Run("SucceedsWithNonMatchingOpts", func(t *testing.T) {
+		t.Parallel()
+
+		bundle := setup(t)
+
+		err := requireNotInsertedErr[*riverpgxv5.Driver](ctx, bundle.mockT, bundle.exec, &Job1Args{}, &RequireInsertedOpts{Priority: 2, Schema: "custom_schema"})
+		require.NoError(t, err)
+		require.False(t, bundle.mockT.Failed, "Should have succeeded, but failed with: "+bundle.mockT.LogOutput())
+	})
+}
+
+// jobGetByKindManyExecutorStub is an executor returning fixed rows from
+// JobGetByKindMany. Calling any other executor method panics.
+type jobGetByKindManyExecutorStub struct {
+	riverdriver.Executor
+
+	jobRows []*rivertype.JobRow
+	schema  string
+}
+
+func (e *jobGetByKindManyExecutorStub) JobGetByKindMany(ctx context.Context, params *riverdriver.JobGetByKindManyParams) ([]*rivertype.JobRow, error) {
+	e.schema = params.Schema
+	return e.jobRows, nil
 }
 
 // The tests for this function are quite minimal because it uses the same

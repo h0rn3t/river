@@ -36,6 +36,7 @@ func ResumableSetCursor[TCursor any](ctx context.Context, cursor TCursor) error 
 		state.Cursors = make(map[string]json.RawMessage)
 	}
 	state.Cursors[state.StepName] = json.RawMessage(cursorBytes)
+	state.PersistedInTx = false
 	return nil
 }
 
@@ -81,6 +82,7 @@ func ResumableStep(ctx context.Context, name string, opts *StepOpts, stepFunc fu
 	}
 
 	state.CompletedStep = name
+	state.PersistedInTx = false
 }
 
 // ResumableStepCursor runs a resumable step that also receives a persisted
@@ -147,6 +149,7 @@ func ResumableStepCursor[TCursor any](ctx context.Context, name string, opts *St
 	}
 
 	state.CompletedStep = name
+	state.PersistedInTx = false
 	delete(state.Cursors, name)
 }
 

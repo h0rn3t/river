@@ -25,6 +25,7 @@ import (
 	"github.com/h0rn3t/river/rivershared/riversharedtest"
 	"github.com/h0rn3t/river/rivershared/startstop"
 	"github.com/h0rn3t/river/rivershared/startstoptest"
+	"github.com/h0rn3t/river/rivershared/testsignal"
 	"github.com/h0rn3t/river/rivershared/util/randutil"
 	"github.com/h0rn3t/river/rivershared/util/sliceutil"
 	"github.com/h0rn3t/river/rivertype"
@@ -83,6 +84,23 @@ type noOpArgs struct{}
 
 func (noOpArgs) Kind() string { return "no_op" }
 
+// noOpExecutor is an executor whose transactions commit without a database,
+// for tests that stub out inserts and pilot calls.
+type noOpExecutor struct {
+	riverdriver.Executor
+}
+
+func (e *noOpExecutor) Begin(ctx context.Context) (riverdriver.ExecutorTx, error) {
+	return &noOpExecutorTx{}, nil
+}
+
+type noOpExecutorTx struct {
+	riverdriver.ExecutorTx
+}
+
+func (tx *noOpExecutorTx) Commit(ctx context.Context) error   { return nil }
+func (tx *noOpExecutorTx) Rollback(ctx context.Context) error { return nil }
+
 func TestPeriodicJobEnqueuer(t *testing.T) {
 	t.Parallel()
 
@@ -90,6 +108,7 @@ func TestPeriodicJobEnqueuer(t *testing.T) {
 
 	type testBundle struct {
 		exec                 riverdriver.Executor
+		insertedParams       []*rivertype.JobInsertParams // only recorded by setupWithoutDatabase
 		notificationsByQueue map[string]int
 		pilotMock            *PilotPeriodicJobMock
 		schema               string
@@ -176,6 +195,46 @@ func TestPeriodicJobEnqueuer(t *testing.T) {
 		svc.TestSignals.Init(t)
 
 		return svc, bundle
+	}
+
+	// Like setup, but runs without a database: transactions commit without
+	// doing anything and inserted jobs are recorded to the bundle. Only read
+	// recorded jobs after the service has stopped.
+	setupWithoutDatabase := func(t *testing.T) (*PeriodicJobEnqueuer, *testBundle) {
+		t.Helper()
+
+		bundle := &testBundle{
+			exec:      &noOpExecutor{},
+			pilotMock: NewPilotPeriodicJobMock(),
+		}
+
+		svc, err := NewPeriodicJobEnqueuer(riversharedtest.BaseServiceArchetype(t), &PeriodicJobEnqueuerConfig{
+			Insert: func(ctx context.Context, tx riverdriver.ExecutorTx, insertParams []*rivertype.JobInsertParams) ([]*rivertype.JobInsertResult, error) {
+				bundle.insertedParams = append(bundle.insertedParams, insertParams...)
+				return nil, nil
+			},
+			Pilot: bundle.pilotMock,
+		}, bundle.exec)
+		require.NoError(t, err)
+		svc.StaggerStartupDisable(true)
+		svc.TestSignals.Init(t)
+
+		return svc, bundle
+	}
+
+	// Makes the service's first insert fail, then inserts normally.
+	failFirstInsert := func(svc *PeriodicJobEnqueuer) {
+		var (
+			insertFunc = svc.Config.Insert
+			numInserts int
+		)
+		svc.Config.Insert = func(ctx context.Context, tx riverdriver.ExecutorTx, insertParams []*rivertype.JobInsertParams) ([]*rivertype.JobInsertResult, error) {
+			numInserts++
+			if numInserts == 1 {
+				return nil, errors.New("insert error")
+			}
+			return insertFunc(ctx, tx, insertParams)
+		}
 	}
 
 	requireNJobs := func(t *testing.T, bundle *testBundle, kind string, expectedNumJobs int) []*rivertype.JobRow {
@@ -904,7 +963,7 @@ func TestPeriodicJobEnqueuer(t *testing.T) {
 		}
 
 		now := time.Now().UTC()
-		svc.insertBatch(ctx, []*rivertype.JobInsertParams{{
+		err := svc.insertBatch(ctx, []*rivertype.JobInsertParams{{
 			Kind:  "periodic_insert_error",
 			Queue: rivercommon.QueueDefault,
 			State: rivertype.JobStateAvailable,
@@ -916,6 +975,7 @@ func TestPeriodicJobEnqueuer(t *testing.T) {
 			}},
 			Schema: bundle.schema,
 		})
+		require.EqualError(t, err, "error inserting 1 periodic job(s): insert failed before database write")
 
 		require.False(t, periodicJobUpsertManyMockCalled)
 	})
@@ -1225,6 +1285,165 @@ func TestPeriodicJobEnqueuer(t *testing.T) {
 		})
 
 		require.EqualError(t, svc.Start(ctx), "hook start error")
+	})
+
+	t.Run("AddManyIsAllOrNothing", func(t *testing.T) {
+		t.Parallel()
+
+		svc, _ := setupWithoutDatabase(t)
+
+		validJob := &PeriodicJob{ID: "periodic_job_valid", ScheduleFunc: periodicIntervalSchedule(time.Minute), ConstructorFunc: jobConstructorFunc("periodic_job_valid", false)}
+
+		_, err := svc.AddManySafely([]*PeriodicJob{
+			validJob,
+			{ID: "periodic_job_valid", ScheduleFunc: periodicIntervalSchedule(time.Minute), ConstructorFunc: jobConstructorFunc("periodic_job_duplicate", false)},
+		})
+		require.EqualError(t, err, "periodic job with ID already registered: periodic_job_valid")
+
+		require.Empty(t, svc.periodicJobIDs)
+		require.Empty(t, svc.periodicJobs)
+
+		// Not left registered by the failed call.
+		_, err = svc.AddSafely(validJob)
+		require.NoError(t, err)
+	})
+
+	t.Run("ConstructorFuncCanModifyPeriodicJobs", func(t *testing.T) {
+		t.Parallel()
+
+		svc, _ := setupWithoutDatabase(t)
+
+		_, err := svc.AddSafely(&PeriodicJob{
+			ConstructorFunc: func() (*rivertype.JobInsertParams, error) {
+				// Deadlocks if the service holds its lock while calling
+				// constructors.
+				svc.RemoveByID("does_not_exist")
+				return jobConstructorFunc("periodic_job_modifies", false)()
+			},
+			RunOnStart:   true,
+			ScheduleFunc: periodicIntervalSchedule(time.Hour),
+		})
+		require.NoError(t, err)
+
+		startService(t, svc)
+
+		svc.TestSignals.InsertedJobs.WaitOrTimeout()
+	})
+
+	t.Run("InsertFailureRetriedWithoutAdvancingSchedule", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			svc, bundle := setupWithoutDatabase(t)
+			failFirstInsert(svc)
+
+			start := time.Now()
+
+			_, err := svc.AddSafely(&PeriodicJob{ScheduleFunc: periodicIntervalSchedule(time.Minute), ConstructorFunc: jobConstructorFunc("periodic_job_1m", false)})
+			require.NoError(t, err)
+
+			startService(t, svc)
+
+			// The insert at one minute fails and is retried after a backoff of
+			// about a second rather than skipped until the next run.
+			time.Sleep(90 * time.Second)
+			svc.Stop()
+
+			require.Len(t, bundle.insertedParams, 1)
+			require.Equal(t, start.Add(time.Minute), *bundle.insertedParams[0].ScheduledAt)
+		})
+	})
+
+	t.Run("KeepAliveDoesNotHoldLockAndTimesOut", func(t *testing.T) {
+		t.Parallel()
+
+		svc, bundle := setupWithoutDatabase(t)
+
+		var (
+			keepAliveHasDeadline bool
+			keepAliveStarted     testsignal.TestSignal[struct{}]
+		)
+		keepAliveStarted.Init(t)
+
+		bundle.pilotMock.PeriodicJobKeepAliveAndReapMock = func(ctx context.Context, exec riverdriver.Executor, params *riverpilot.PeriodicJobKeepAliveAndReapParams) ([]*riverpilot.PeriodicJob, error) {
+			_, keepAliveHasDeadline = ctx.Deadline()
+			keepAliveStarted.Signal(struct{}{})
+
+			// Hangs like a call on a dead connection.
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+
+		_, err := svc.AddSafely(&PeriodicJob{ID: "periodic_job_keep_alive", ScheduleFunc: periodicIntervalSchedule(time.Hour), ConstructorFunc: jobConstructorFunc("periodic_job_keep_alive", false)})
+		require.NoError(t, err)
+
+		startService(t, svc)
+
+		keepAliveStarted.WaitOrTimeout()
+		require.True(t, keepAliveHasDeadline)
+
+		// Adding takes the write lock, so it would block for as long as the
+		// keep alive call if the lock were held across it.
+		var added testsignal.TestSignal[error]
+		added.Init(t)
+		go func() {
+			_, err := svc.AddSafely(&PeriodicJob{ID: "periodic_job_added", ScheduleFunc: periodicIntervalSchedule(time.Hour), ConstructorFunc: jobConstructorFunc("periodic_job_added", false)})
+			added.Signal(err)
+		}()
+		require.NoError(t, added.WaitOrTimeout())
+	})
+
+	t.Run("OverdueJobInsertedOnce", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			svc, bundle := setupWithoutDatabase(t)
+
+			start := time.Now()
+
+			// Durable state says the job has been due for an hour, which is
+			// sixty missed runs.
+			bundle.pilotMock.PeriodicJobGetAllMock = func(ctx context.Context, exec riverdriver.Executor, params *riverpilot.PeriodicJobGetAllParams) ([]*riverpilot.PeriodicJob, error) {
+				return []*riverpilot.PeriodicJob{{ID: "periodic_job_overdue", NextRunAt: start.Add(-time.Hour)}}, nil
+			}
+
+			_, err := svc.AddSafely(&PeriodicJob{ID: "periodic_job_overdue", ScheduleFunc: periodicIntervalSchedule(time.Minute), ConstructorFunc: jobConstructorFunc("periodic_job_overdue", false)})
+			require.NoError(t, err)
+
+			startService(t, svc)
+
+			time.Sleep(time.Second)
+			svc.Stop()
+
+			require.Len(t, bundle.insertedParams, 1)
+			require.Equal(t, start.Add(-time.Hour), *bundle.insertedParams[0].ScheduledAt)
+			require.Equal(t, start.Add(time.Minute), svc.periodicJobs[svc.periodicJobIDs["periodic_job_overdue"]].nextRunAt)
+		})
+	})
+
+	t.Run("RunOnStartInsertFailureRetried", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			svc, bundle := setupWithoutDatabase(t)
+			failFirstInsert(svc)
+
+			start := time.Now()
+
+			_, err := svc.AddSafely(&PeriodicJob{ScheduleFunc: periodicIntervalSchedule(time.Hour), ConstructorFunc: jobConstructorFunc("periodic_job_1h", false), RunOnStart: true})
+			require.NoError(t, err)
+
+			startService(t, svc)
+
+			// Retried after a backoff instead of waiting an hour for the
+			// next scheduled run.
+			time.Sleep(time.Minute)
+			svc.Stop()
+
+			require.Len(t, bundle.insertedParams, 1)
+			require.Equal(t, start, *bundle.insertedParams[0].ScheduledAt)
+			require.Equal(t, start.Add(time.Hour), svc.periodicJobs[0].nextRunAt)
+		})
 	})
 }
 

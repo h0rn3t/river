@@ -3,6 +3,8 @@ package riverdbtest
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"slices"
 	"sync"
 	"testing"
 
@@ -245,6 +247,76 @@ func TestTestSchemaReuse(t *testing.T) { //nolint:paralleltest
 	for _, schema := range previouslyIdleSchemasForDisableReuse {
 		requireIdle(t, schema)
 	}
+}
+
+// Tests that a schema whose setup fails isn't checked back in for reuse by
+// another test. A cancelled context makes setup fail after the schema's cleanup
+// hook is registered. The target version is part of the idle schemas key, and
+// no other test uses this one, so no other test shares the key.
+func TestTestSchemaNotReusedAfterFailedSetup(t *testing.T) {
+	t.Parallel()
+
+	const databaseAndLinesKey = "postgres,main:2"
+
+	var (
+		ctx    = context.Background()
+		dbPool = riversharedtest.DBPool(ctx, t)
+		driver = riverpgxv5.New(dbPool)
+		mockTB = &failNowRecordingTB{TB: t}
+	)
+
+	// Make sure the one-time initial cleanup of expired schemas has run, since
+	// it uses the context too and its failure would affect other tests.
+	TestSchema(ctx, t, driver, &TestSchemaOpts{skipPackageNameCheck: true})
+
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	// FailNow exits its goroutine, so run TestSchema in a separate one.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		TestSchema(cancelledCtx, mockTB, driver, &TestSchemaOpts{
+			LineTargetVersions:   map[string]int{riverdriver.MigrationLineMain: 2},
+			skipPackageNameCheck: true,
+		})
+	}()
+	<-done
+
+	require.True(t, mockTB.failed)
+	require.NotEmpty(t, mockTB.cleanupFuncs)
+
+	for _, cleanupFunc := range slices.Backward(mockTB.cleanupFuncs) {
+		cleanupFunc()
+	}
+
+	idleSchemasMu.Lock()
+	defer idleSchemasMu.Unlock()
+	require.Empty(t, idleSchemas[databaseAndLinesKey])
+}
+
+// failNowRecordingTB is a testing.TB that records cleanup functions instead of
+// running them, and whose FailNow records the failure and exits the calling
+// goroutine. It must be used from a goroutine other than the test's.
+type failNowRecordingTB struct {
+	testing.TB
+
+	cleanupFuncs []func()
+	failed       bool
+}
+
+func (tb *failNowRecordingTB) Cleanup(cleanupFunc func()) {
+	tb.cleanupFuncs = append(tb.cleanupFuncs, cleanupFunc)
+}
+
+func (tb *failNowRecordingTB) Errorf(format string, args ...any) {
+	tb.failed = true
+	tb.Logf(format, args...)
+}
+
+func (tb *failNowRecordingTB) FailNow() {
+	tb.failed = true
+	runtime.Goexit()
 }
 
 func TestPackageFromFunc(t *testing.T) {

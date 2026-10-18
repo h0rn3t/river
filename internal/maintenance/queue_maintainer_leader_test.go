@@ -82,6 +82,30 @@ func TestQueueMaintainerLeader(t *testing.T) {
 		require.GreaterOrEqual(t, startAttempts.Load(), int64(queueMaintainerMaxStartAttempts))
 	})
 
+	t.Run("StaleStartAttemptDoesNotStartMaintainer", func(t *testing.T) {
+		t.Parallel()
+
+		var startAttempts atomic.Int64
+		maintainer := NewQueueMaintainer(riversharedtest.BaseServiceArchetype(t), []startstop.Service{
+			&failingStartService{startAttempts: &startAttempts},
+		})
+		maintainer.StaggerStartupDisable(true)
+
+		leader := NewQueueMaintainerLeader(riversharedtest.BaseServiceArchetype(t), &QueueMaintainerLeaderConfig{
+			ClientID:        "test_client_id",
+			QueueMaintainer: maintainer,
+		})
+		leader.TestSignals.Init(t)
+
+		// Simulate leadership having been lost (advancing the epoch) after the
+		// start attempt for epoch 1 was launched, but before it ran.
+		leader.epoch = 2
+		leader.tryStart(ctx, 1, 1)
+
+		require.Zero(t, startAttempts.Load())
+		leader.TestSignals.StartError.RequireEmpty()
+	})
+
 	t.Run("StartsMaintainerOnLeadershipGain", func(t *testing.T) {
 		t.Parallel()
 

@@ -396,6 +396,10 @@ func (m *Migrator[TTx]) migrateDown(ctx context.Context, exec riverdriver.Execut
 		opts = &MigrateOpts{}
 	}
 
+	if err := m.lockInOuterTx(ctx, exec, opts, inOuterTx); err != nil {
+		return nil, err
+	}
+
 	existingMigrations, err := m.existingMigrations(ctx, exec)
 	if err != nil {
 		return nil, err
@@ -449,6 +453,10 @@ func (m *Migrator[TTx]) migrateDown(ctx context.Context, exec riverdriver.Execut
 func (m *Migrator[TTx]) migrateUp(ctx context.Context, exec riverdriver.Executor, direction Direction, opts *MigrateOpts, inOuterTx bool) (*MigrateResult, error) {
 	if opts == nil {
 		opts = &MigrateOpts{}
+	}
+
+	if err := m.lockInOuterTx(ctx, exec, opts, inOuterTx); err != nil {
+		return nil, err
 	}
 
 	existingMigrations, err := m.existingMigrations(ctx, exec)
@@ -526,6 +534,8 @@ func (m *Migrator[TTx]) validate(ctx context.Context, exec riverdriver.Executor,
 // Common code shared between the up and down migration directions that walks
 // through each target migration and applies it, logging appropriately.
 func (m *Migrator[TTx]) applyMigrations(ctx context.Context, exec riverdriver.Executor, direction Direction, opts *MigrateOpts, inOuterTx bool, sortedTargetMigrations []Migration) (*MigrateResult, error) {
+	// Whether the target version was among the migrations to apply before
+	// MaxSteps trimmed them.
 	targetWasPending := slices.ContainsFunc(sortedTargetMigrations, func(migration Migration) bool {
 		return migration.Version == opts.TargetVersion
 	})
@@ -552,12 +562,14 @@ func (m *Migrator[TTx]) applyMigrations(ctx context.Context, exec riverdriver.Ex
 
 		targetIndex := slices.IndexFunc(sortedTargetMigrations, func(b Migration) bool { return b.Version == opts.TargetVersion })
 		if targetIndex == -1 {
-			if direction == DirectionDown {
+			// Keep the trimmed list when the target is pending, but beyond
+			// MaxSteps. Otherwise, the target was already applied (up), or
+			// was never applied (down).
+			switch {
+			case targetWasPending:
+			case direction == DirectionDown:
 				return nil, fmt.Errorf("version %d is not in target list of valid migrations to apply", opts.TargetVersion)
-			}
-			// The target was already applied if it was absent before MaxSteps
-			// trimmed the list. Keep the trimmed list when the target is pending.
-			if !targetWasPending {
+			default:
 				sortedTargetMigrations = []Migration{}
 			}
 		} else {
@@ -605,7 +617,10 @@ func (m *Migrator[TTx]) applyMigrations(ctx context.Context, exec riverdriver.Ex
 			sql, _ = m.replacer.Run(ctx, m.driver.ArgPlaceholder(), sql, nil)
 		}
 
-		var duration time.Duration
+		var (
+			duration time.Duration
+			skipped  bool
+		)
 
 		if !opts.DryRun {
 			start := time.Now()
@@ -615,6 +630,28 @@ func (m *Migrator[TTx]) applyMigrations(ctx context.Context, exec riverdriver.Ex
 			// a commit on a preexisting operation (such as adding an enum value to be
 			// used in an immutable function) cannot succeed.
 			err := dbutil.WithTx(ctx, exec, func(ctx context.Context, exec riverdriver.ExecutorTx) error {
+				// Without an outer transaction (which was locked before
+				// existing migrations were read), serialize with any other
+				// migrators, then check whether one of them applied (or
+				// removed) this version since existing migrations were read.
+				if !inOuterTx {
+					if err := exec.MigrationLock(ctx, &riverdriver.MigrationLockParams{Line: m.line, Schema: m.schema}); err != nil {
+						return fmt.Errorf("error acquiring migration lock: %w", err)
+					}
+
+					existingMigrations, err := m.existingMigrations(ctx, exec)
+					if err != nil {
+						return err
+					}
+					applied := slices.ContainsFunc(existingMigrations, func(migration *riverdriver.Migration) bool {
+						return migration.Version == versionBundle.Version
+					})
+					if applied == (direction == DirectionUp) {
+						skipped = true
+						return nil
+					}
+				}
+
 				if err := exec.Exec(ctx, sql); err != nil {
 					return fmt.Errorf("error applying version %03d [%s]: %w",
 						versionBundle.Version, strings.ToUpper(string(direction)), err)
@@ -642,6 +679,14 @@ func (m *Migrator[TTx]) applyMigrations(ctx context.Context, exec riverdriver.Ex
 				return nil, err
 			}
 			duration = time.Since(start)
+		}
+
+		if skipped {
+			m.Logger.InfoContext(ctx, m.Name+": Skipped migration already applied by another migrator",
+				slog.String("direction", string(direction)),
+				slog.Int("version", versionBundle.Version),
+			)
+			continue
 		}
 
 		m.Logger.InfoContext(ctx, m.Name+": Applied migration",
@@ -713,6 +758,22 @@ func (m *Migrator[TTx]) existingMigrations(ctx context.Context, exec riverdriver
 	return migrations, nil
 }
 
+// Acquires the migration lock in an outer transaction (see MigrateTx) so that
+// it's held across reading existing migrations and applying new ones. Without
+// an outer transaction, the lock is instead taken in each migration's
+// transaction.
+func (m *Migrator[TTx]) lockInOuterTx(ctx context.Context, exec riverdriver.Executor, opts *MigrateOpts, inOuterTx bool) error {
+	if !inOuterTx || opts.DryRun {
+		return nil
+	}
+
+	if err := exec.MigrationLock(ctx, &riverdriver.MigrationLockParams{Line: m.line, Schema: m.schema}); err != nil {
+		return fmt.Errorf("error acquiring migration lock: %w", err)
+	}
+
+	return nil
+}
+
 func (m *Migrator[TTx]) versionsDelete(ctx context.Context, exec riverdriver.Executor, opts *MigrateOpts, versions ...int) error {
 	if opts.DryRun || len(versions) < 1 {
 		return nil
@@ -729,21 +790,31 @@ func (m *Migrator[TTx]) versionsDelete(ctx context.Context, exec riverdriver.Exe
 	// the migration `line` comes in. If migration to a point equal or above
 	// 005, we can remove migrations with a line included, but otherwise we
 	// must omit the `line` column from queries because it doesn't exist.
+	var deleted []*riverdriver.Migration
 	if m.line == riverdriver.MigrationLineMain && slices.Min(versions) <= migrateVersionLineColumnAdded {
-		if _, err := exec.MigrationDeleteAssumingMainMany(ctx, &riverdriver.MigrationDeleteAssumingMainManyParams{
+		var err error
+		if deleted, err = exec.MigrationDeleteAssumingMainMany(ctx, &riverdriver.MigrationDeleteAssumingMainManyParams{
 			Versions: versions,
 			Schema:   m.schema,
 		}); err != nil {
-			return fmt.Errorf("error inserting migration rows for versions %+v assuming main: %w", versions, err)
+			return fmt.Errorf("error deleting migration rows for versions %+v assuming main: %w", versions, err)
 		}
 	} else {
-		if _, err := exec.MigrationDeleteByLineAndVersionMany(ctx, &riverdriver.MigrationDeleteByLineAndVersionManyParams{
+		var err error
+		if deleted, err = exec.MigrationDeleteByLineAndVersionMany(ctx, &riverdriver.MigrationDeleteByLineAndVersionManyParams{
 			Line:     m.line,
 			Schema:   m.schema,
 			Versions: versions,
 		}); err != nil {
 			return fmt.Errorf("error deleting migration rows for versions %+v on line %q: %w", versions, m.line, err)
 		}
+	}
+
+	// A version that's no longer recorded may have been migrated down by
+	// someone else already. Error so that the transaction running this down
+	// migration rolls back instead of committing it a second time.
+	if len(deleted) != len(versions) {
+		return fmt.Errorf("expected to delete migration rows for versions %+v on line %q, but deleted %d", versions, m.line, len(deleted))
 	}
 
 	return nil
@@ -809,11 +880,12 @@ func migrationsFromFS(migrationFS fs.FS, line string) ([]Migration, error) {
 		}
 		filename = filename[len(subdir)+1:]
 
-		// Ignore any migrations that don't belong to the line we're reading.
-		if !strings.HasPrefix(filename, line) {
+		// Ignore any migrations that don't belong to the line we're reading,
+		// including those of a line that the line's name is a prefix of.
+		filename, inLine := strings.CutPrefix(filename, line+"/")
+		if !inLine {
 			return nil
 		}
-		filename = filename[len(line)+1:]
 
 		versionStr, name, ok := strings.Cut(filename, "_")
 		if !ok {

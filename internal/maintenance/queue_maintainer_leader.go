@@ -56,9 +56,10 @@ type QueueMaintainerLeader struct {
 
 	config *QueueMaintainerLeaderConfig
 
-	// epoch is incremented each time leadership is gained, giving each start
-	// goroutine a term number. mu serializes epoch checks with Stop calls so
-	// a stale goroutine cannot tear down a newer term's maintainer.
+	// epoch is incremented each time leadership is gained or lost, giving each
+	// start goroutine a term number. mu serializes epoch checks with Start and
+	// Stop calls so a stale goroutine can neither start the maintainer after
+	// leadership was lost nor tear down a newer term's maintainer.
 	epoch int64
 	mu    sync.Mutex
 }
@@ -126,7 +127,12 @@ func (s *QueueMaintainerLeader) Start(ctx context.Context) error {
 					cancelStart(startstop.ErrStop)
 					cancelStart = func(_ error) {}
 
+					// Advance the epoch with the stop so a start attempt that
+					// hasn't reached Start yet sees it's stale and skips it.
+					s.mu.Lock()
+					s.epoch++
 					s.config.QueueMaintainer.Stop()
+					s.mu.Unlock()
 				}
 			}
 		}
@@ -138,11 +144,18 @@ func (s *QueueMaintainerLeader) Start(ctx context.Context) error {
 func (s *QueueMaintainerLeader) tryStart(ctx context.Context, epoch int64, term uint64) {
 	var lastErr error
 	for attempt := 1; attempt <= queueMaintainerMaxStartAttempts; attempt++ {
-		if ctx.Err() != nil {
+		// Check staleness and start under the mutex so that leadership being
+		// lost can't slip in between them, leaving a maintainer started with a
+		// cancelled context that makes the next term's start a no-op.
+		s.mu.Lock()
+		if ctx.Err() != nil || s.epoch != epoch {
+			s.mu.Unlock()
 			return
 		}
+		lastErr = s.config.QueueMaintainer.Start(ctx)
+		s.mu.Unlock()
 
-		if lastErr = s.config.QueueMaintainer.Start(ctx); lastErr == nil {
+		if lastErr == nil {
 			return
 		}
 

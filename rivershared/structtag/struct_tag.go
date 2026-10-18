@@ -134,8 +134,10 @@ func sortedFieldsWithTagUncached(typ reflect.Type, tagValue string) ([]string, e
 // values. Path components are the JSON keys using the same logic as the `json`
 // struct tag. Results are unsorted.
 //
-// typesSeen should be a map passed through to make sure that recursive types
-// don't cause a stack overflow.
+// typesSeen holds the struct types of the current ancestor chain so that
+// recursive types don't cause a stack overflow. A type is removed again once
+// its traversal completes so that a type reached through several sibling
+// fields (e.g. `From Addr` and `To Addr`) contributes fields under each.
 func fieldPathsWithTag(typ reflect.Type, tagValue string, path []string, typesSeen map[reflect.Type]struct{}) ([]fieldPath, error) {
 	// Handle pointer to struct
 	if typ.Kind() == reflect.Pointer {
@@ -154,6 +156,7 @@ func fieldPathsWithTag(typ reflect.Type, tagValue string, path []string, typesSe
 		return nil, nil
 	}
 	typesSeen[typ] = struct{}{}
+	defer delete(typesSeen, typ)
 
 	var uniqueFields []fieldPath
 
@@ -163,8 +166,16 @@ func fieldPathsWithTag(typ reflect.Type, tagValue string, path []string, typesSe
 			continue
 		}
 
+		jsonTag := field.Tag.Get("json")
+
+		// Like encoding/json, omit an embedded struct tagged `json:"-"`
+		// entirely, so none of its fields can contribute.
+		if field.Anonymous && jsonTag == "-" {
+			continue
+		}
+
 		// Get the corresponding JSON key
-		uniqueName := parseJSONTag(field.Name, field.Tag.Get("json"))
+		uniqueName := parseJSONTag(field.Name, jsonTag)
 
 		// Check for `river:"unique"` tag, possibly among other comma-separated values
 		var hasUniqueTag bool
@@ -179,10 +190,12 @@ func fieldPathsWithTag(typ reflect.Type, tagValue string, path []string, typesSe
 
 		if typeStructOrPointerToStruct(field.Type) {
 			// Append the JSON to the path (all path segments sent down
-			// recursively) unless we're looking at an anonymous struct, whose
-			// fields will be let at the top level.
+			// recursively) unless we're looking at an anonymous struct without
+			// a JSON name, whose fields encoding/json promotes to this level.
+			// An anonymous struct named in its `json` tag is encoded as a
+			// nested object under that name, like any other field.
 			fullPath := path
-			if !field.Anonymous {
+			if jsonName, _, _ := strings.Cut(jsonTag, ","); !field.Anonymous || jsonName != "" {
 				fullPath = append(path, uniqueName) //nolint:gocritic
 			}
 

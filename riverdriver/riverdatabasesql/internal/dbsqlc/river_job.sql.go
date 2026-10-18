@@ -706,19 +706,19 @@ func (q *Queries) JobGetStuck(ctx context.Context, db DBTX, arg *JobGetStuckPara
 const jobInsertFastMany = `-- name: JobInsertFastMany :many
 WITH raw_job_data AS (
     SELECT
-        unnest($1::bigint[]) AS id,
-        unnest($2::jsonb[]) AS args,
-        unnest($3::timestamptz[]) AS created_at,
-        unnest($4::text[]) AS kind,
-        unnest($5::smallint[]) AS max_attempts,
-        unnest($6::jsonb[]) AS metadata,
-        unnest($7::smallint[]) AS priority,
-        unnest($8::text[]) AS queue,
-        unnest($9::timestamptz[]) AS scheduled_at,
-        unnest($10::text[]) AS state,
-        unnest($11::text[]) AS tags,
-        unnest($12::bytea[]) AS unique_key,
-        unnest($13::integer[]) AS unique_states
+        unnest($2::bigint[]) AS id,
+        unnest($3::jsonb[]) AS args,
+        unnest($4::timestamptz[]) AS created_at,
+        unnest($5::text[]) AS kind,
+        unnest($6::smallint[]) AS max_attempts,
+        unnest($7::jsonb[]) AS metadata,
+        unnest($8::smallint[]) AS priority,
+        unnest($9::text[]) AS queue,
+        unnest($10::timestamptz[]) AS scheduled_at,
+        unnest($11::text[]) AS state,
+        unnest($12::text[]) AS tags,
+        unnest($13::bytea[]) AS unique_key,
+        unnest($14::integer[]) AS unique_states
 )
 INSERT INTO /* TEMPLATE: schema */river_job(
     id,
@@ -735,7 +735,10 @@ INSERT INTO /* TEMPLATE: schema */river_job(
     unique_key,
     unique_states
 ) SELECT
-    coalesce(nullif(id, 0), nextval('/* TEMPLATE: schema */river_job_id_seq'::regclass)),
+    -- The sequence name is a parameter rather than a templated string literal
+    -- so that a schema name containing a quote can't break out of it. It's
+    -- resolved once in a subquery rather than per row.
+    coalesce(nullif(id, 0), nextval((SELECT $1::text::regclass))),
     args,
     coalesce(nullif(created_at, '0001-01-01 00:00:00 +0000'), now()) AS created_at,
     kind,
@@ -765,6 +768,7 @@ RETURNING
 `
 
 type JobInsertFastManyParams struct {
+	IDSequence   string
 	ID           []int64
 	Args         []string
 	CreatedAt    []time.Time
@@ -787,6 +791,7 @@ type JobInsertFastManyRow struct {
 
 func (q *Queries) JobInsertFastMany(ctx context.Context, db DBTX, arg *JobInsertFastManyParams) ([]*JobInsertFastManyRow, error) {
 	rows, err := db.QueryContext(ctx, jobInsertFastMany,
+		arg.IDSequence,
 		pq.Array(arg.ID),
 		pq.Array(arg.Args),
 		pq.Array(arg.CreatedAt),
@@ -1256,6 +1261,17 @@ func (q *Queries) JobList(ctx context.Context, db DBTX, max int32) ([]*RiverJob,
 }
 
 const jobRescueMany = `-- name: JobRescueMany :exec
+WITH job_to_update AS (
+    -- Lock rows in a consistent order before updating them so that
+    -- concurrent batches with overlapping IDs can't deadlock each other.
+    SELECT id
+    FROM /* TEMPLATE: schema */river_job
+    WHERE id = any($2::bigint[])
+        AND state = 'running'
+        AND attempted_at < $1::timestamptz
+    ORDER BY id
+    FOR UPDATE
+)
 UPDATE /* TEMPLATE: schema */river_job
 SET
     errors = array_append(errors, updated_job.error),
@@ -1281,6 +1297,7 @@ FROM (
         unnest($6::text[])::/* TEMPLATE: schema */river_job_state AS state
 ) AS updated_job
 WHERE river_job.id = updated_job.id
+    AND river_job.id IN (SELECT id FROM job_to_update)
     AND river_job.state = 'running'
     AND river_job.attempted_at < $1::timestamptz
 `
@@ -1528,6 +1545,16 @@ WITH job_input AS (
         -- type, we cast the array to text[] and then to river_job_state.
         unnest($12::text[])::/* TEMPLATE: schema */river_job_state AS state
 ),
+job_to_update AS (
+    -- Lock rows in a consistent order before updating them so that
+    -- concurrent batches with overlapping IDs can't deadlock each other.
+    SELECT river_job.id
+    FROM /* TEMPLATE: schema */river_job
+        JOIN job_input ON river_job.id = job_input.id
+    WHERE river_job.state = 'running' OR job_input.metadata_do_merge
+    ORDER BY river_job.id
+    FOR UPDATE OF river_job
+),
 updated AS (
     UPDATE /* TEMPLATE: schema */river_job
     SET
@@ -1575,6 +1602,7 @@ updated AS (
         END
     FROM job_input
     WHERE river_job.id = job_input.id
+      AND river_job.id IN (SELECT id FROM job_to_update)
       AND (river_job.state = 'running' OR job_input.metadata_do_merge)
     RETURNING river_job.id, river_job.args, river_job.attempt, river_job.attempted_at, river_job.attempted_by, river_job.created_at, river_job.errors, river_job.finalized_at, river_job.kind, river_job.max_attempts, river_job.metadata, river_job.priority, river_job.queue, river_job.state, river_job.scheduled_at, river_job.tags, river_job.unique_key, river_job.unique_states
 )

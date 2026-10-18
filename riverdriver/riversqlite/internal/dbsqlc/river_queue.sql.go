@@ -7,7 +7,6 @@ package dbsqlc
 
 import (
 	"context"
-	"strings"
 )
 
 const queueCreateOrSetUpdatedAt = `-- name: QueueCreateOrSetUpdatedAt :one
@@ -163,7 +162,7 @@ FROM /* TEMPLATE: schema */river_queue
 WHERE
     name > cast(?1 AS text)
     AND (cast(?2 AS text) = '' OR LOWER(name) LIKE '%' || LOWER(cast(?2 AS text)) || '%')
-    AND name NOT IN (/*SLICE:exclude*/?)
+    AND name NOT IN (SELECT value FROM json_each(cast(?3 AS blob)))
 ORDER BY name ASC
 LIMIT ?4
 `
@@ -171,25 +170,17 @@ LIMIT ?4
 type QueueNameListParams struct {
 	After   string
 	Match   string
-	Exclude []string
+	Exclude []byte
 	Max     int64
 }
 
 func (q *Queries) QueueNameList(ctx context.Context, db DBTX, arg *QueueNameListParams) ([]string, error) {
-	query := queueNameList
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.After)
-	queryParams = append(queryParams, arg.Match)
-	if len(arg.Exclude) > 0 {
-		for _, v := range arg.Exclude {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:exclude*/?", strings.Repeat(",?", len(arg.Exclude))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:exclude*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.Max)
-	rows, err := db.QueryContext(ctx, query, queryParams...)
+	rows, err := db.QueryContext(ctx, queueNameList,
+		arg.After,
+		arg.Match,
+		arg.Exclude,
+		arg.Max,
+	)
 	if err != nil {
 		return nil, err
 	}

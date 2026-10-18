@@ -3,6 +3,7 @@ package riverdrivertest_test
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"testing"
@@ -24,7 +25,9 @@ import (
 	"github.com/h0rn3t/river/riverdriver/riverdrivertest"
 	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
 	"github.com/h0rn3t/river/riverdriver/riversqlite"
+	"github.com/h0rn3t/river/rivermigrate"
 	"github.com/h0rn3t/river/rivershared/riversharedtest"
+	"github.com/h0rn3t/river/rivershared/testfactory"
 	"github.com/h0rn3t/river/rivershared/util/urlutil"
 	"github.com/h0rn3t/river/rivertype"
 )
@@ -234,6 +237,58 @@ func TestDriverRiverLiteLibSQL(t *testing.T) { //nolint:dupl
 		})
 }
 
+// With multiple connections in WAL mode, a transaction that reads before
+// writing can't wait for another writer through busy_timeout because its
+// snapshot would be stale by the time it got the write lock. JobSchedule must
+// take the write lock first so that it waits instead of failing with
+// SQLITE_BUSY.
+func TestDriverRiverSQLiteJobScheduleConcurrentWriter(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	dbPool, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "river.sqlite3")+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, dbPool.Close()) })
+	dbPool.SetMaxOpenConns(2)
+
+	driver := riversqlite.New(dbPool)
+
+	migrator, err := rivermigrate.New(driver, nil)
+	require.NoError(t, err)
+	_, err = migrator.Migrate(ctx, rivermigrate.DirectionUp, nil)
+	require.NoError(t, err)
+
+	exec := driver.GetExecutor()
+
+	job := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{ScheduledAt: new(time.Now().Add(-time.Hour)), State: new(rivertype.JobStateScheduled)})
+
+	// Another connection holds the write lock until it commits.
+	otherTx, err := dbPool.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	_ = testfactory.Job(ctx, t, driver.UnwrapExecutor(otherTx), &testfactory.JobOpts{})
+
+	type scheduleResult struct {
+		err     error
+		results []*riverdriver.JobScheduleResult
+	}
+	resultChan := make(chan scheduleResult, 1)
+	go func() {
+		results, err := exec.JobSchedule(ctx, &riverdriver.JobScheduleParams{Max: 10})
+		resultChan <- scheduleResult{err: err, results: results}
+	}()
+
+	// Give JobSchedule time to start before the other writer commits.
+	time.Sleep(100 * time.Millisecond)
+	require.NoError(t, otherTx.Commit())
+
+	result := <-resultChan
+	require.NoError(t, result.err)
+	require.Len(t, result.results, 1)
+	require.Equal(t, job.ID, result.results[0].Job.ID)
+	require.Equal(t, rivertype.JobStateAvailable, result.results[0].Job.State)
+}
+
 func TestDriverRiverSQLiteModernC(t *testing.T) { //nolint:dupl
 	t.Parallel()
 
@@ -284,6 +339,146 @@ func TestDriverRiverSQLiteModernC(t *testing.T) { //nolint:dupl
 			})
 			return driver.UnwrapExecutor(tx), driver
 		})
+}
+
+// rivertest unwraps transactions with a nil driver, so an executor from a nil
+// SQLite driver must not dereference its driver, including in operations that
+// start their own (sub)transactions.
+func TestDriverRiverSQLiteNilDriver(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	type testBundle struct {
+		exec riverdriver.ExecutorTx
+	}
+
+	setup := func(ctx context.Context, t *testing.T) *testBundle {
+		t.Helper()
+
+		tx, _ := riverdbtest.TestTx(ctx, t, riversqlite.New(nil), &riverdbtest.TestTxOpts{
+			DisableSchemaSharing: true, // see TestDriverRiverSQLiteModernC
+			ProcurePool: func(ctx context.Context, schema string) (any, string) {
+				return riversharedtest.DBPoolSQLite(ctx, t, schema), ""
+			},
+		})
+
+		var driver *riversqlite.Driver
+		return &testBundle{exec: driver.UnwrapExecutor(tx)}
+	}
+
+	t.Run("Begin", func(t *testing.T) {
+		t.Parallel()
+
+		bundle := setup(ctx, t)
+
+		subTx, err := bundle.exec.Begin(ctx)
+		require.NoError(t, err)
+
+		subSubTx, err := subTx.Begin(ctx)
+		require.NoError(t, err)
+
+		// An operation that starts its own savepoint from within a savepoint.
+		job := testfactory.Job(ctx, t, subSubTx, &testfactory.JobOpts{State: new(rivertype.JobStateRunning)})
+		jobAfter, err := subSubTx.JobCancel(ctx, &riverdriver.JobCancelParams{ID: job.ID, CancelAttemptedAt: time.Now(), ControlTopic: "control"})
+		require.NoError(t, err)
+		require.Equal(t, job.ID, jobAfter.ID)
+
+		require.NoError(t, subSubTx.Commit(ctx))
+		require.NoError(t, subTx.Rollback(ctx))
+	})
+
+	t.Run("JobCancel", func(t *testing.T) {
+		t.Parallel()
+
+		bundle := setup(ctx, t)
+
+		job := testfactory.Job(ctx, t, bundle.exec, &testfactory.JobOpts{State: new(rivertype.JobStateAvailable)})
+
+		jobAfter, err := bundle.exec.JobCancel(ctx, &riverdriver.JobCancelParams{ID: job.ID, CancelAttemptedAt: time.Now(), ControlTopic: "control"})
+		require.NoError(t, err)
+		require.Equal(t, rivertype.JobStateCancelled, jobAfter.State)
+	})
+
+	t.Run("JobDelete", func(t *testing.T) {
+		t.Parallel()
+
+		bundle := setup(ctx, t)
+
+		job := testfactory.Job(ctx, t, bundle.exec, &testfactory.JobOpts{State: new(rivertype.JobStateCompleted)})
+
+		jobAfter, err := bundle.exec.JobDelete(ctx, &riverdriver.JobDeleteParams{ID: job.ID})
+		require.NoError(t, err)
+		require.Equal(t, job.ID, jobAfter.ID)
+	})
+
+	t.Run("JobRescueMany", func(t *testing.T) {
+		t.Parallel()
+
+		bundle := setup(ctx, t)
+
+		now := time.Now().UTC()
+		job := testfactory.Job(ctx, t, bundle.exec, &testfactory.JobOpts{State: new(rivertype.JobStateRunning)})
+
+		_, err := bundle.exec.JobRescueMany(ctx, &riverdriver.JobRescueManyParams{
+			ID:           []int64{job.ID},
+			Error:        [][]byte{[]byte(`{"error": "message"}`)},
+			FinalizedAt:  []*time.Time{nil},
+			ScheduledAt:  []time.Time{now},
+			State:        []string{string(rivertype.JobStateAvailable)},
+			StuckHorizon: now,
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("JobRetry", func(t *testing.T) {
+		t.Parallel()
+
+		bundle := setup(ctx, t)
+
+		job := testfactory.Job(ctx, t, bundle.exec, &testfactory.JobOpts{State: new(rivertype.JobStateDiscarded)})
+
+		jobAfter, err := bundle.exec.JobRetry(ctx, &riverdriver.JobRetryParams{ID: job.ID})
+		require.NoError(t, err)
+		require.Equal(t, rivertype.JobStateAvailable, jobAfter.State)
+	})
+
+	t.Run("JobSchedule", func(t *testing.T) {
+		t.Parallel()
+
+		bundle := setup(ctx, t)
+
+		now := time.Now().UTC()
+		job := testfactory.Job(ctx, t, bundle.exec, &testfactory.JobOpts{ScheduledAt: new(now.Add(-time.Hour)), State: new(rivertype.JobStateScheduled)})
+
+		results, err := bundle.exec.JobSchedule(ctx, &riverdriver.JobScheduleParams{Max: 10, Now: &now})
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		require.Equal(t, job.ID, results[0].Job.ID)
+	})
+
+	t.Run("JobSetStateIfRunningMany", func(t *testing.T) {
+		t.Parallel()
+
+		bundle := setup(ctx, t)
+
+		now := time.Now().UTC()
+		job := testfactory.Job(ctx, t, bundle.exec, &testfactory.JobOpts{State: new(rivertype.JobStateRunning)})
+
+		jobsAfter, err := bundle.exec.JobSetStateIfRunningMany(ctx, &riverdriver.JobSetStateIfRunningManyParams{
+			ID:              []int64{job.ID},
+			Attempt:         []*int{nil},
+			ErrData:         [][]byte{nil},
+			FinalizedAt:     []*time.Time{&now},
+			MetadataDoMerge: []bool{false},
+			MetadataUpdates: [][]byte{nil},
+			ScheduledAt:     []*time.Time{nil},
+			State:           []rivertype.JobState{rivertype.JobStateCompleted},
+		})
+		require.NoError(t, err)
+		require.Len(t, jobsAfter, 1)
+		require.Equal(t, rivertype.JobStateCompleted, jobsAfter[0].State)
+	})
 }
 
 func TestDriverRiverTurso(t *testing.T) {

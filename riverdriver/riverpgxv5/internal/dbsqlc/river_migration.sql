@@ -67,3 +67,15 @@ SELECT
 RETURNING
     created_at,
     version;
+
+-- Takes a transaction-scoped advisory lock that serializes migrators operating
+-- on the same schema and line. An empty schema resolves to the current schema
+-- so that it serializes with migrators targeting that schema explicitly.
+--
+-- name: RiverMigrationLock :exec
+SELECT pg_advisory_xact_lock(
+    hashtextextended(
+        concat('river_migrate:', coalesce(sqlc.narg('schema')::text, current_schema()), ':', @line::text),
+        0
+    )
+);

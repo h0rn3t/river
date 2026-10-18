@@ -141,8 +141,17 @@ func (n *Notifier) Start(ctx context.Context) error {
 			n.deliverNotifications(ctx)
 		})
 
-		for attempt := 0; ctx.Err() == nil; attempt++ {
-			if err := n.listenAndWait(ctx); err != nil {
+		var attempt int
+		for ctx.Err() == nil {
+			wasHealthy, err := n.listenAndWait(ctx)
+
+			// A session that proved healthy restarts the backoff from the
+			// beginning instead of continuing from earlier failures.
+			if wasHealthy {
+				attempt = 0
+			}
+
+			if err != nil {
 				// Only the service context ending should stop retries. A listener
 				// operation may time out while the service context is still live.
 				if ctx.Err() != nil {
@@ -160,6 +169,8 @@ func (n *Notifier) Start(ctx context.Context) error {
 					serviceutil.CancellableSleep(ctx, sleepDuration)
 				}
 			}
+
+			attempt++
 		}
 
 		wg.Wait()
@@ -190,9 +201,12 @@ func (n *Notifier) deliverNotifications(ctx context.Context) {
 	}
 }
 
-func (n *Notifier) listenAndWait(ctx context.Context) error {
+// listenAndWait connects, listens, and waits for notifications until an error
+// occurs. The returned boolean reports whether at least one wait completed
+// successfully (e.g. a health check ping succeeded) before the error.
+func (n *Notifier) listenAndWait(ctx context.Context) (bool, error) {
 	if err := n.listenerConnect(ctx, false); err != nil {
-		return err
+		return false, err
 	}
 	defer n.listenerClose(ctx, false)
 
@@ -205,7 +219,7 @@ func (n *Notifier) listenAndWait(ctx context.Context) error {
 
 	for _, topic := range topics {
 		if err := n.listenerListen(ctx, topic); err != nil {
-			return err
+			return false, err
 		}
 	}
 
@@ -229,10 +243,11 @@ func (n *Notifier) listenAndWait(ctx context.Context) error {
 	// leaving any goroutines hanging anywhere.
 	defer drainInterrupts()
 
+	var wasHealthy bool
 	for {
 		// Top level context is done, meaning we're shutting down.
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return wasHealthy, ctx.Err()
 		}
 
 		// Drain any and all interrupt operations before continuing back into a
@@ -249,8 +264,10 @@ func (n *Notifier) listenAndWait(ctx context.Context) error {
 
 			n.Logger.InfoContext(ctx, n.Name+": Notifier unhealthy")
 
-			return err
+			return wasHealthy, err
 		}
+
+		wasHealthy = true
 	}
 }
 
@@ -441,7 +458,10 @@ func (n *Notifier) waitOnce(ctx context.Context) error {
 		// the ping a no-op that always returned context.Canceled. With the fix,
 		// dead or flaky connections are now actively detected, which may trigger
 		// reconnections that were previously silently swallowed.
-		if err := n.listener.Ping(pingCtx); err != nil {
+		//
+		// Bound the ping so that a half-open connection is detected promptly
+		// instead of blocking until the OS gives up on the socket.
+		if err := timeoututil.WithTimeout(pingCtx, listenerTimeout, n.Name+".listenerPing", n.listener.Ping); err != nil {
 			return err
 		}
 
@@ -463,7 +483,9 @@ func (n *Notifier) waitOnce(ctx context.Context) error {
 //
 // MUST be called with the `n.mu` mutex already locked.
 func (n *Notifier) sendInterruptAndReceiveResult(operation func() error) error {
-	errChan := make(chan error)
+	// Buffered so that the main loop never blocks sending a result after this
+	// function has given up waiting on it below.
+	errChan := make(chan error, 1)
 	n.waitInterruptChan <- func() {
 		errChan <- operation()
 	}
@@ -555,6 +577,13 @@ func (n *Notifier) unlisten(ctx context.Context, sub *Subscription) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	// Always remove the subscription locally, even if unlistening on the
+	// listener fails below, because Subscription.Unlisten only runs once and the
+	// subscription would otherwise stay registered forever. A topic still
+	// listened on the connection is harmless: its notifications have no
+	// subscribers to deliver to, and it's not relistened after a reconnect.
+	defer n.removeSubscription(ctx, sub)
+
 	subs := n.subscriptions[sub.topic]
 
 	// If this is the last subscription on the topic, unlisten if we're connected.
@@ -580,8 +609,6 @@ func (n *Notifier) unlisten(ctx context.Context, sub *Subscription) error {
 			}
 		}
 	}
-
-	n.removeSubscription(ctx, sub)
 
 	return nil
 }

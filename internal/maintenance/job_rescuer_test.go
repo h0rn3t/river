@@ -77,6 +77,27 @@ func (p *SimpleClientRetryPolicy) NextRetry(job *rivertype.JobRow) time.Time {
 	return job.AttemptedAt.Add(timeutil.SecondsAsDuration(retrySeconds))
 }
 
+// jobRescuerExecutorMock serves stuck jobs from memory and records rescues so
+// the rescuer can run without a database.
+type jobRescuerExecutorMock struct {
+	riverdriver.Executor
+
+	jobRescueManyParams *riverdriver.JobRescueManyParams
+	stuckJobs           []*rivertype.JobRow
+}
+
+func (e *jobRescuerExecutorMock) JobGetStuck(ctx context.Context, params *riverdriver.JobGetStuckParams) ([]*rivertype.JobRow, error) {
+	if params.AfterID > 0 {
+		return nil, nil
+	}
+	return e.stuckJobs, nil
+}
+
+func (e *jobRescuerExecutorMock) JobRescueMany(ctx context.Context, params *riverdriver.JobRescueManyParams) (*struct{}, error) {
+	e.jobRescueManyParams = params
+	return &struct{}{}, nil
+}
+
 type jobRescuerPilotSpy struct {
 	riverpilot.StandardPilot
 
@@ -398,6 +419,38 @@ func TestJobRescuer(t *testing.T) {
 		stopped := cleaner.Stopped()
 		cancelFunc()
 		riversharedtest.WaitOrTimeout(t, stopped)
+	})
+
+	t.Run("UndecodableMetadataRescuedAsNotCancelled", func(t *testing.T) {
+		t.Parallel()
+
+		attemptedAt := time.Now().Add(-2 * JobRescuerRescueAfterDefault)
+		exec := &jobRescuerExecutorMock{
+			stuckJobs: []*rivertype.JobRow{
+				{ID: 1, Attempt: 1, AttemptedAt: &attemptedAt, Kind: rescuerJobKind, MaxAttempts: 5, Metadata: []byte(`{"cancel_attempted_at":"not a time"}`)},
+				{ID: 2, Attempt: 1, AttemptedAt: &attemptedAt, Kind: rescuerJobKind, MaxAttempts: 5, Metadata: []byte(`{"cancel_attempted_at":"2026-09-28T00:00:00Z"}`)},
+			},
+		}
+
+		rescuer := NewRescuer(
+			riversharedtest.BaseServiceArchetype(t),
+			&JobRescuerConfig{
+				ClientRetryPolicy: &SimpleClientRetryPolicy{},
+				Interval:          JobRescuerIntervalDefault,
+				RescueAfter:       JobRescuerRescueAfterDefault,
+				WorkUnitFactoryFunc: func(kind string) workunit.WorkUnitFactory {
+					return &callbackWorkUnitFactory{Callback: func(ctx context.Context, jobRow *rivertype.JobRow) error { return nil }}
+				},
+			},
+			exec)
+
+		res, err := rescuer.runOnce(ctx)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), res.NumJobsCancelled)
+		require.Equal(t, int64(1), res.NumJobsRetried)
+
+		require.Equal(t, []int64{1, 2}, exec.jobRescueManyParams.ID)
+		require.Equal(t, []string{string(rivertype.JobStateRetryable), string(rivertype.JobStateCancelled)}, exec.jobRescueManyParams.State)
 	})
 
 	t.Run("UnmarshalErrorDiscardsAtMaxAttempts", func(t *testing.T) {

@@ -9,13 +9,17 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/h0rn3t/river/riverdbtest"
 	"github.com/h0rn3t/river/riverdriver"
 	"github.com/h0rn3t/river/rivershared/testfactory"
 	"github.com/h0rn3t/river/rivershared/util/sliceutil"
 	"github.com/h0rn3t/river/rivertype"
 )
 
-func exerciseJobDelete[TTx any](ctx context.Context, t *testing.T, executorWithTx func(ctx context.Context, t *testing.T) (riverdriver.Executor, riverdriver.Driver[TTx])) {
+func exerciseJobDelete[TTx any](ctx context.Context, t *testing.T,
+	driverWithSchema func(ctx context.Context, t *testing.T, opts *riverdbtest.TestSchemaOpts) (riverdriver.Driver[TTx], string),
+	executorWithTx func(ctx context.Context, t *testing.T) (riverdriver.Executor, riverdriver.Driver[TTx]),
+) {
 	t.Helper()
 
 	type testBundle struct {
@@ -526,6 +530,52 @@ func exerciseJobDelete[TTx any](ctx context.Context, t *testing.T, executorWithT
 				require.NoError(t, err)
 				require.Len(t, deletedJobs, 2)
 			}
+		})
+
+		t.Run("SkipsLockedJobs", func(t *testing.T) {
+			t.Parallel()
+
+			driver, schema := driverWithSchema(ctx, t, nil)
+			if driver.DatabaseName() == riverdriver.DatabaseNameSQLite {
+				t.Skip("SQLite has a single writer, so no other transaction can hold a lock on a job")
+			}
+			exec := driver.GetExecutor()
+
+			var (
+				lockedJob = testfactory.Job(ctx, t, exec, &testfactory.JobOpts{Schema: schema})
+				otherJob  = testfactory.Job(ctx, t, exec, &testfactory.JobOpts{Schema: schema})
+			)
+
+			// Lock a job the way a producer does as it moves it to running.
+			tx, err := exec.Begin(ctx)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = tx.Rollback(ctx) })
+			_, err = tx.JobUpdateFull(ctx, &riverdriver.JobUpdateFullParams{
+				ID:            lockedJob.ID,
+				Schema:        schema,
+				State:         rivertype.JobStateRunning,
+				StateDoUpdate: true,
+			})
+			require.NoError(t, err)
+
+			// The locked job is skipped, neither waited for nor deleted.
+			deleteCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			deletedJobs, err := exec.JobDeleteMany(deleteCtx, &riverdriver.JobDeleteManyParams{
+				Max:           100,
+				NamedArgs:     map[string]any{"locked_job_id": lockedJob.ID, "other_job_id": otherJob.ID},
+				OrderByClause: "id",
+				Schema:        schema,
+				WhereClause:   "id IN (@locked_job_id, @other_job_id)",
+			})
+			require.NoError(t, err)
+			require.Equal(t, []int64{otherJob.ID}, sliceutil.Map(deletedJobs, func(j *rivertype.JobRow) int64 { return j.ID }))
+
+			require.NoError(t, tx.Commit(ctx))
+
+			job, err := exec.JobGetByID(ctx, &riverdriver.JobGetByIDParams{ID: lockedJob.ID, Schema: schema})
+			require.NoError(t, err)
+			require.Equal(t, rivertype.JobStateRunning, job.State)
 		})
 
 		t.Run("SortedResults", func(t *testing.T) {

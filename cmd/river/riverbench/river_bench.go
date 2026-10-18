@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/h0rn3t/river"
 	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/util/dbutil"
 	"github.com/h0rn3t/river/rivertype"
 )
 
@@ -41,22 +43,19 @@ func NewBenchmarker[TTx any](driver riverdriver.Driver[TTx], config *Config) *Be
 // when reaching maximum configured run duration.
 func (b *Benchmarker[TTx]) Run(ctx context.Context, duration time.Duration, numTotalJobs int) error {
 	var (
-		lastJobWorkedAt time.Time
+		lastJobWorkedAt atomic.Pointer[time.Time] // written by subscription goroutine
 		numJobsInserted atomic.Int64
 		numJobsLeft     atomic.Int64
 		numJobsWorked   atomic.Int64
 		shutdown        = make(chan struct{})
-		shutdownClosed  bool
 	)
 
-	// Prevents double-close on shutdown channel.
-	closeShutdown := func() {
-		if !shutdownClosed {
-			b.logger.DebugContext(ctx, "Closing shutdown channel")
-			close(shutdown)
-		}
-		shutdownClosed = true
-	}
+	// Prevents double-close on shutdown channel. Invoked from both the signal
+	// goroutine and the main goroutine.
+	closeShutdown := sync.OnceFunc(func() {
+		b.logger.DebugContext(ctx, "Closing shutdown channel")
+		close(shutdown)
+	})
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -111,6 +110,7 @@ func (b *Benchmarker[TTx]) Run(ctx context.Context, duration time.Duration, numT
 			// enough to target for now.
 			river.QueueDefault: {MaxWorkers: 2_000},
 		},
+		Schema:  b.schema,
 		Workers: workers,
 	})
 	if err != nil {
@@ -171,7 +171,7 @@ func (b *Benchmarker[TTx]) Run(ctx context.Context, duration time.Duration, numT
 					b.logger.ErrorContext(ctx, "Unhandled subscription event kind", "kind", event.Kind)
 				}
 
-				lastJobWorkedAt = time.Now()
+				lastJobWorkedAt.Store(new(time.Now()))
 				numJobsLeft.Add(-1)
 				numJobsWorked := numJobsWorked.Add(1)
 
@@ -217,7 +217,9 @@ func (b *Benchmarker[TTx]) Run(ctx context.Context, duration time.Duration, numT
 	minJobsReady := make(chan struct{})
 
 	if numTotalJobs != 0 {
-		b.insertJobs(ctx, client, minJobsReady, &numJobsInserted, &numJobsLeft, numTotalJobs, shutdown)
+		if err := b.insertJobs(ctx, client, minJobsReady, &numJobsInserted, &numJobsLeft, numTotalJobs, shutdown); err != nil {
+			return err
+		}
 	} else {
 		insertJobsFinished := make(chan struct{})
 		defer func() { <-insertJobsFinished }()
@@ -261,7 +263,11 @@ func (b *Benchmarker[TTx]) Run(ctx context.Context, duration time.Duration, numT
 	defer func() {
 		// Use timing since the last job worked since even in burn down mode,
 		// the benchmark waits for one last interval before ending.
-		runPeriod := lastJobWorkedAt.Sub(start)
+		var lastWorkedAt time.Time
+		if lastJobWorkedAtPtr := lastJobWorkedAt.Load(); lastJobWorkedAtPtr != nil {
+			lastWorkedAt = *lastJobWorkedAtPtr
+		}
+		runPeriod := lastWorkedAt.Sub(start)
 		jobsPerSecond := float64(numJobsWorked.Load()) / runPeriod.Seconds()
 
 		fmt.Printf("bench: total jobs worked [ %10d ], total jobs inserted [ %10d ], overall job/sec [ %10.1f ], running %s\n",
@@ -332,6 +338,10 @@ const (
 // Inserts `b.numTotalJobs` in batches. This variant inserts a bulk of initial
 // jobs and ends, and is used in cases the `-n`/`--num-total-jobs` flag is
 // specified.
+//
+// An insert error is returned rather than retried because the benchmark only
+// ends once every expected job has been worked, so it'd otherwise wait
+// forever on jobs that were never inserted.
 func (b *Benchmarker[TTx]) insertJobs(
 	ctx context.Context,
 	client *river.Client[TTx],
@@ -340,7 +350,7 @@ func (b *Benchmarker[TTx]) insertJobs(
 	numJobsLeft *atomic.Int64,
 	numTotalJobs int,
 	shutdown chan struct{},
-) {
+) error {
 	defer close(minJobsReady)
 
 	var (
@@ -365,7 +375,7 @@ func (b *Benchmarker[TTx]) insertJobs(
 
 		start := time.Now()
 		if _, err := client.InsertMany(ctx, insertParamsBatch); err != nil {
-			b.logger.ErrorContext(ctx, b.name+": Error inserting jobs", "err", err)
+			return fmt.Errorf("error inserting jobs: %w", err)
 		}
 
 		numJobsInserted.Add(int64(len(insertParamsBatch)))
@@ -375,15 +385,15 @@ func (b *Benchmarker[TTx]) insertJobs(
 		if numJobsLeft.Load() >= int64(numTotalJobs) {
 			b.logger.InfoContext(ctx, b.name+": Finished inserting jobs",
 				"duration", time.Since(start), "num_inserted", numInsertedThisRound)
-			return
+			return nil
 		}
 
 		// Will be very unusual, but break early if done between batches.
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-shutdown:
-			return
+			return nil
 		default:
 		}
 	}
@@ -409,6 +419,7 @@ func (b *Benchmarker[TTx]) insertJobsContinuously(
 		jobNum int
 	)
 
+insertRounds:
 	for {
 		select {
 		case <-ctx.Done():
@@ -428,8 +439,11 @@ func (b *Benchmarker[TTx]) insertJobsContinuously(
 				insertParamsBatch[i].Args = BenchmarkArgs{Num: jobNum}
 			}
 
+			// Jobs that failed to insert aren't counted, and the round is
+			// retried after the usual sleep.
 			if _, err := client.InsertMany(ctx, insertParamsBatch); err != nil {
 				b.logger.ErrorContext(ctx, b.name+": Error inserting jobs", "err", err)
+				continue insertRounds
 			}
 
 			numJobsInserted.Add(int64(len(insertParamsBatch)))
@@ -475,7 +489,12 @@ func (b *Benchmarker[TTx]) resetJobsTable(ctx context.Context) error {
 
 	switch b.driver.DatabaseName() {
 	case "postgres":
-		if err := b.driver.GetExecutor().Exec(ctx, "VACUUM FULL river_job"); err != nil {
+		table := "river_job"
+		if b.schema != "" {
+			table = dbutil.SafeIdentifier(b.schema) + "." + table
+		}
+
+		if err := b.driver.GetExecutor().Exec(ctx, "VACUUM FULL "+table); err != nil {
 			return fmt.Errorf("error vacuuming: %w", err)
 		}
 	case "sqlite":

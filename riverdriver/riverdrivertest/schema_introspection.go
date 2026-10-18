@@ -11,6 +11,8 @@ import (
 
 	"github.com/h0rn3t/river/riverdbtest"
 	"github.com/h0rn3t/river/riverdriver"
+	"github.com/h0rn3t/river/rivershared/util/dbutil"
+	"github.com/h0rn3t/river/rivershared/util/randutil"
 )
 
 func exerciseSchemaIntrospection[TTx any](ctx context.Context, t *testing.T,
@@ -74,6 +76,39 @@ func exerciseSchemaIntrospection[TTx any](ctx context.Context, t *testing.T,
 		})
 		require.NoError(t, err)
 		require.False(t, exists)
+	})
+
+	t.Run("ColumnExistsResolvesTableThroughSearchPath", func(t *testing.T) {
+		t.Parallel()
+
+		exec, driver := executorWithTx(ctx, t)
+
+		if driver.DatabaseName() != riverdriver.DatabaseNamePostgres {
+			t.Skip("Skipping; search_path is specific to Postgres")
+		}
+
+		var currentSchema string
+		require.NoError(t, exec.QueryRow(ctx, "SELECT current_schema()").Scan(&currentSchema))
+
+		// Put a schema without River tables first in the search path so that
+		// it becomes the current schema, but `river_migration` still resolves
+		// to the test schema. ColumnExists must look at the same table that
+		// TableExists finds.
+		emptySchema := "river_empty_" + randutil.Hex(4)
+		require.NoError(t, exec.Exec(ctx, "CREATE SCHEMA "+dbutil.SafeIdentifier(emptySchema)))
+		require.NoError(t, exec.Exec(ctx, fmt.Sprintf("SET LOCAL search_path TO %s, %s",
+			dbutil.SafeIdentifier(emptySchema), dbutil.SafeIdentifier(currentSchema))))
+
+		tableExists, err := exec.TableExists(ctx, &riverdriver.TableExistsParams{Table: "river_migration"})
+		require.NoError(t, err)
+		require.True(t, tableExists)
+
+		columnExists, err := exec.ColumnExists(ctx, &riverdriver.ColumnExistsParams{
+			Column: "line",
+			Table:  "river_migration",
+		})
+		require.NoError(t, err)
+		require.True(t, columnExists)
 	})
 
 	t.Run("IndexDropIfExists", func(t *testing.T) {

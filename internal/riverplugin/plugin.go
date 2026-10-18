@@ -54,17 +54,27 @@ func (*ResumableMiddleware) Work(ctx context.Context, job *rivertype.JobRow, doI
 
 	ctx = context.WithValue(ctx, ResumableContextKey{}, state)
 
-	err := doInner(ctx)
-	if err == nil {
-		switch {
-		case state.Err != nil:
-			err = state.Err
-		case state.ResumeStep != "" && !state.ResumeMatched:
-			err = fmt.Errorf("river: resumable step %q not found in Worker", state.ResumeStep)
-		}
-	}
+	var (
+		err      error
+		panicked = true
+	)
 
-	if err != nil && state.CompletedStep != "" {
+	// Persist progress from a deferred function so that it's also recorded
+	// when a step panics. The executor stores metadata updates for panicked
+	// jobs along with their result.
+	defer func() {
+		if !panicked && err == nil {
+			return
+		}
+
+		// The latest progress was persisted by ResumableSetStepTx or
+		// ResumableSetStepCursorTx. It's durable if its transaction committed
+		// and must not be resurrected if it rolled back, so leave the step and
+		// cursor stored in the database as they are.
+		if state.PersistedInTx {
+			return
+		}
+
 		if len(state.Cursors) > 0 {
 			metadataUpdates[rivercommon.MetadataKeyResumableCursor] = state.Cursors
 		} else if hadCursors {
@@ -73,7 +83,22 @@ func (*ResumableMiddleware) Work(ctx context.Context, job *rivertype.JobRow, doI
 			// is additive and wouldn't remove the old key on its own.
 			metadataUpdates[rivercommon.MetadataKeyResumableCursor] = nil
 		}
-		metadataUpdates[rivercommon.MetadataKeyResumableStep] = state.CompletedStep
+
+		if state.CompletedStep != "" {
+			metadataUpdates[rivercommon.MetadataKeyResumableStep] = state.CompletedStep
+		}
+	}()
+
+	err = doInner(ctx)
+	panicked = false
+
+	if err == nil {
+		switch {
+		case state.Err != nil:
+			err = state.Err
+		case state.ResumeStep != "" && !state.ResumeMatched:
+			err = fmt.Errorf("river: resumable step %q not found in Worker", state.ResumeStep)
+		}
 	}
 
 	return err
@@ -86,6 +111,14 @@ type ResumableState struct {
 	CompletedStep string
 	Cursors       map[string]json.RawMessage
 	Err           error
+
+	// PersistedInTx is set when the most recent step progress was persisted
+	// by ResumableSetStepTx or ResumableSetStepCursorTx rather than recorded
+	// in memory. Because whether that transaction commits isn't known, step
+	// progress isn't written again when the attempt ends. Recording progress
+	// in memory afterwards unsets it.
+	PersistedInTx bool
+
 	ResumeMatched bool
 	ResumeStep    string
 	StepName      string

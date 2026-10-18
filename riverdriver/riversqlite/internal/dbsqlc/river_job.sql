@@ -520,7 +520,7 @@ SELECT DISTINCT kind
 FROM /* TEMPLATE: schema */river_job
 WHERE (cast(@match AS text) = '' OR LOWER(kind) LIKE '%' || LOWER(cast(@match AS text)) || '%')
     AND (cast(@after AS text) = '' OR kind > cast(@after AS text))
-    AND kind NOT IN (sqlc.slice('exclude'))
+    AND kind NOT IN (SELECT value FROM json_each(cast(@exclude AS blob)))
 ORDER BY kind ASC
 LIMIT @max;
 
@@ -602,6 +602,16 @@ WHERE id = @id
         OR scheduled_at > coalesce(cast(sqlc.narg('now') AS text), datetime('now', 'subsec'))
     )
 RETURNING *;
+
+-- Takes the write lock at the start of JobSchedule's transaction without
+-- changing any rows. A transaction that reads before writing gets a snapshot,
+-- and in WAL mode its first write fails with SQLITE_BUSY_SNAPSHOT (which
+-- busy_timeout doesn't retry) if another connection committed after the
+-- snapshot was taken. Writing first makes other writers wait instead.
+-- name: JobScheduleLock :exec
+UPDATE /* TEMPLATE: schema */river_job
+SET id = id
+WHERE false;
 
 -- Selects only the columns needed to schedule jobs so that a job with a JSON
 -- column that isn't valid JSON doesn't fail scheduling. See JobGetAvailable.
@@ -696,10 +706,21 @@ RETURNING
 -- for JobSetStateIfRunning to use when falling back to non-running jobs.
 -- Metadata that isn't valid JSON is left in place, and columns are listed out
 -- to tolerate values that aren't valid JSON. See JobGetAvailable.
+--
+-- Metadata is merged like Postgres' `||`: a shallow merge where keys in the
+-- update replace existing keys wholesale and null values are kept. jsonb_patch
+-- isn't used because it implements RFC 7396, which deletes keys set to null and
+-- merges nested objects. Instead, the existing and updated objects are iterated
+-- as elements 0 and 1 of an array, skipping existing keys that the update also
+-- has. json_each returns booleans as integers, so they're rebuilt from its type
+-- column. Metadata that isn't valid JSON is also guarded inside the subquery
+-- because Turso evaluates it even when the outer CASE condition is false.
 -- name: JobSetMetadataIfNotRunning :one
 UPDATE /* TEMPLATE: schema */river_job
 SET metadata = CASE WHEN typeof(metadata) <> 'text' OR json_valid(metadata)
-                    THEN jsonb_patch(json(metadata), json(@metadata_updates))
+                    THEN (SELECT jsonb_group_object(kv.key, CASE kv.type WHEN 'true' THEN json('true') WHEN 'false' THEN json('false') WHEN 'array' THEN json(kv.value) WHEN 'object' THEN json(kv.value) ELSE kv.value END)
+                          FROM json_each(json_array(CASE WHEN typeof(metadata) <> 'text' OR json_valid(metadata) THEN json(metadata) ELSE json('{}') END, json(@metadata_updates))) AS source, json_each(source.value) AS kv
+                          WHERE source.key = 1 OR NOT EXISTS (SELECT 1 FROM json_each(json(@metadata_updates)) AS updates WHERE updates.key = kv.key))
                     ELSE metadata END
 WHERE id = @id
     AND state != 'running'
@@ -731,6 +752,9 @@ RETURNING
 -- `cancel_attempted_at`, and is left in place instead of being merged into.
 -- Columns are listed out to tolerate values that aren't valid JSON. See
 -- JobGetAvailable.
+--
+-- Metadata is merged shallowly like Postgres' `||`. See
+-- JobSetMetadataIfNotRunning.
 -- name: JobSetStateIfRunning :one
 UPDATE /* TEMPLATE: schema */river_job
 SET
@@ -756,7 +780,9 @@ SET
                         THEN cast(sqlc.narg('finalized_at') AS text)
                         ELSE finalized_at END,
     metadata     = CASE WHEN cast(@metadata_do_merge AS boolean) AND (typeof(metadata) <> 'text' OR json_valid(metadata))
-                        THEN jsonb_patch(json(metadata), json(@metadata_updates))
+                        THEN (SELECT jsonb_group_object(kv.key, CASE kv.type WHEN 'true' THEN json('true') WHEN 'false' THEN json('false') WHEN 'array' THEN json(kv.value) WHEN 'object' THEN json(kv.value) ELSE kv.value END)
+                              FROM json_each(json_array(CASE WHEN typeof(metadata) <> 'text' OR json_valid(metadata) THEN json(metadata) ELSE json('{}') END, json(@metadata_updates))) AS source, json_each(source.value) AS kv
+                              WHERE source.key = 1 OR NOT EXISTS (SELECT 1 FROM json_each(json(@metadata_updates)) AS updates WHERE updates.key = kv.key))
                         ELSE metadata END,
     scheduled_at = CASE WHEN /* NOT should_cancel */(cast(@state AS text) <> 'available' AND @state <> 'retryable' AND @state <> 'scheduled' OR (CASE WHEN typeof(metadata) <> 'text' OR json_valid(metadata) THEN metadata -> 'cancel_attempted_at' END) IS NULL) AND cast(@scheduled_at_do_update AS boolean)
                         THEN cast(@scheduled_at AS text)
@@ -786,10 +812,16 @@ RETURNING
     unique_key,
     unique_states;
 
+-- Metadata is merged shallowly like Postgres' `||`. See
+-- JobSetMetadataIfNotRunning.
 -- name: JobUpdate :one
 UPDATE /* TEMPLATE: schema */river_job
 SET
-    metadata = CASE WHEN cast(@metadata_do_merge AS boolean) THEN jsonb_patch(json(metadata), json(@metadata)) ELSE metadata END
+    metadata = CASE WHEN cast(@metadata_do_merge AS boolean)
+                    THEN (SELECT jsonb_group_object(kv.key, CASE kv.type WHEN 'true' THEN json('true') WHEN 'false' THEN json('false') WHEN 'array' THEN json(kv.value) WHEN 'object' THEN json(kv.value) ELSE kv.value END)
+                          FROM json_each(json_array(json(metadata), json(@metadata))) AS source, json_each(source.value) AS kv
+                          WHERE source.key = 1 OR NOT EXISTS (SELECT 1 FROM json_each(json(@metadata)) AS updates WHERE updates.key = kv.key))
+                    ELSE metadata END
 WHERE id = @id
 RETURNING *;
 

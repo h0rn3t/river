@@ -66,14 +66,18 @@ func (c *CLI) BaseCommandSet() *cobra.Command {
 	}
 	var rootCmd *cobra.Command
 
+	// Logs go to stderr so they don't mix with command output on stdout like
+	// the SQL printed by `migrate-get` or `--show-sql`.
 	makeLogger := func() *slog.Logger {
+		errOut := rootCmd.ErrOrStderr()
+
 		switch {
 		case globalOpts.Debug:
-			return slog.New(tint.NewTextHandler(os.Stdout, &tint.Options{Level: slog.LevelDebug}))
+			return slog.New(tint.NewTextHandler(errOut, &tint.Options{Level: slog.LevelDebug}))
 		case globalOpts.Verbose:
-			return slog.New(tint.NewTextHandler(os.Stdout, nil))
+			return slog.New(tint.NewTextHandler(errOut, nil))
 		default:
-			return slog.New(tint.NewTextHandler(os.Stdout, &tint.Options{Level: slog.LevelWarn}))
+			return slog.New(tint.NewTextHandler(errOut, &tint.Options{Level: slog.LevelWarn}))
 		}
 	}
 

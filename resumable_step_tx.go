@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 
 	"github.com/h0rn3t/river/internal/execution"
-	"github.com/h0rn3t/river/internal/jobexecutor"
 	"github.com/h0rn3t/river/internal/rivercommon"
 	"github.com/h0rn3t/river/riverdriver"
 	"github.com/h0rn3t/river/rivertype"
@@ -75,23 +75,18 @@ func resumableSetStepTx[TTx any, TArgs JobArgs](ctx context.Context, tx TTx, job
 		rivercommon.MetadataKeyResumableStep: step,
 	}
 
-	state.CompletedStep = step
+	// In-memory resumable state and the work context's metadata updates are
+	// left untouched because they'd be persisted when the attempt ends even if
+	// tx is rolled back. Cursors are copied for the same reason.
+	cursors := maps.Clone(state.Cursors)
 	if cursor != nil {
-		if state.Cursors == nil {
-			state.Cursors = make(map[string]json.RawMessage)
+		if cursors == nil {
+			cursors = make(map[string]json.RawMessage)
 		}
-		state.Cursors[step] = cursor
+		cursors[step] = cursor
 	}
-	if len(state.Cursors) > 0 {
-		metadataUpdates[rivercommon.MetadataKeyResumableCursor] = state.Cursors
-	}
-
-	workMetadataUpdates, hasWorkMetadataUpdates := jobexecutor.MetadataUpdatesFromWorkContext(ctx)
-	if hasWorkMetadataUpdates {
-		workMetadataUpdates[rivercommon.MetadataKeyResumableStep] = step
-		if resumableCursorMetadata, ok := metadataUpdates[rivercommon.MetadataKeyResumableCursor]; ok {
-			workMetadataUpdates[rivercommon.MetadataKeyResumableCursor] = resumableCursorMetadata
-		}
+	if len(cursors) > 0 {
+		metadataUpdates[rivercommon.MetadataKeyResumableCursor] = cursors
 	}
 
 	metadataUpdatesBytes, err := json.Marshal(metadataUpdates)
@@ -114,6 +109,8 @@ func resumableSetStepTx[TTx any, TArgs JobArgs](ctx context.Context, tx TTx, job
 
 		return nil, err
 	}
+
+	state.PersistedInTx = true
 
 	result := &Job[TArgs]{JobRow: updatedJob}
 	if err := json.Unmarshal(result.EncodedArgs, &result.Args); err != nil {

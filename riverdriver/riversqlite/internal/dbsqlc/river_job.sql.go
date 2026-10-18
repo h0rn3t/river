@@ -1284,7 +1284,7 @@ SELECT DISTINCT kind
 FROM /* TEMPLATE: schema */river_job
 WHERE (cast(?1 AS text) = '' OR LOWER(kind) LIKE '%' || LOWER(cast(?1 AS text)) || '%')
     AND (cast(?2 AS text) = '' OR kind > cast(?2 AS text))
-    AND kind NOT IN (/*SLICE:exclude*/?)
+    AND kind NOT IN (SELECT value FROM json_each(cast(?3 AS blob)))
 ORDER BY kind ASC
 LIMIT ?4
 `
@@ -1292,25 +1292,17 @@ LIMIT ?4
 type JobKindListParams struct {
 	Match   string
 	After   string
-	Exclude []string
+	Exclude []byte
 	Max     int64
 }
 
 func (q *Queries) JobKindList(ctx context.Context, db DBTX, arg *JobKindListParams) ([]string, error) {
-	query := jobKindList
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.Match)
-	queryParams = append(queryParams, arg.After)
-	if len(arg.Exclude) > 0 {
-		for _, v := range arg.Exclude {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:exclude*/?", strings.Repeat(",?", len(arg.Exclude))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:exclude*/?", "NULL", 1)
-	}
-	queryParams = append(queryParams, arg.Max)
-	rows, err := db.QueryContext(ctx, query, queryParams...)
+	rows, err := db.QueryContext(ctx, jobKindList,
+		arg.Match,
+		arg.After,
+		arg.Exclude,
+		arg.Max,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1587,6 +1579,22 @@ func (q *Queries) JobScheduleGetEligible(ctx context.Context, db DBTX, arg *JobS
 	return items, nil
 }
 
+const jobScheduleLock = `-- name: JobScheduleLock :exec
+UPDATE /* TEMPLATE: schema */river_job
+SET id = id
+WHERE false
+`
+
+// Takes the write lock at the start of JobSchedule's transaction without
+// changing any rows. A transaction that reads before writing gets a snapshot,
+// and in WAL mode its first write fails with SQLITE_BUSY_SNAPSHOT (which
+// busy_timeout doesn't retry) if another connection committed after the
+// snapshot was taken. Writing first makes other writers wait instead.
+func (q *Queries) JobScheduleLock(ctx context.Context, db DBTX) error {
+	_, err := db.ExecContext(ctx, jobScheduleLock)
+	return err
+}
+
 const jobScheduleSetAvailable = `-- name: JobScheduleSetAvailable :many
 UPDATE /* TEMPLATE: schema */river_job
 SET
@@ -1801,7 +1809,9 @@ func (q *Queries) JobScheduleSetDiscarded(ctx context.Context, db DBTX, arg *Job
 const jobSetMetadataIfNotRunning = `-- name: JobSetMetadataIfNotRunning :one
 UPDATE /* TEMPLATE: schema */river_job
 SET metadata = CASE WHEN typeof(metadata) <> 'text' OR json_valid(metadata)
-                    THEN jsonb_patch(json(metadata), json(?1))
+                    THEN (SELECT jsonb_group_object(kv.key, CASE kv.type WHEN 'true' THEN json('true') WHEN 'false' THEN json('false') WHEN 'array' THEN json(kv.value) WHEN 'object' THEN json(kv.value) ELSE kv.value END)
+                          FROM json_each(json_array(CASE WHEN typeof(metadata) <> 'text' OR json_valid(metadata) THEN json(metadata) ELSE json('{}') END, json(?1))) AS source, json_each(source.value) AS kv
+                          WHERE source.key = 1 OR NOT EXISTS (SELECT 1 FROM json_each(json(?1)) AS updates WHERE updates.key = kv.key))
                     ELSE metadata END
 WHERE id = ?2
     AND state != 'running'
@@ -1856,6 +1866,15 @@ type JobSetMetadataIfNotRunningRow struct {
 // for JobSetStateIfRunning to use when falling back to non-running jobs.
 // Metadata that isn't valid JSON is left in place, and columns are listed out
 // to tolerate values that aren't valid JSON. See JobGetAvailable.
+//
+// Metadata is merged like Postgres' `||`: a shallow merge where keys in the
+// update replace existing keys wholesale and null values are kept. jsonb_patch
+// isn't used because it implements RFC 7396, which deletes keys set to null and
+// merges nested objects. Instead, the existing and updated objects are iterated
+// as elements 0 and 1 of an array, skipping existing keys that the update also
+// has. json_each returns booleans as integers, so they're rebuilt from its type
+// column. Metadata that isn't valid JSON is also guarded inside the subquery
+// because Turso evaluates it even when the outer CASE condition is false.
 func (q *Queries) JobSetMetadataIfNotRunning(ctx context.Context, db DBTX, arg *JobSetMetadataIfNotRunningParams) (*JobSetMetadataIfNotRunningRow, error) {
 	row := db.QueryRowContext(ctx, jobSetMetadataIfNotRunning, arg.MetadataUpdates, arg.ID)
 	var i JobSetMetadataIfNotRunningRow
@@ -1907,7 +1926,9 @@ SET
                         THEN cast(?8 AS text)
                         ELSE finalized_at END,
     metadata     = CASE WHEN cast(?9 AS boolean) AND (typeof(metadata) <> 'text' OR json_valid(metadata))
-                        THEN jsonb_patch(json(metadata), json(?10))
+                        THEN (SELECT jsonb_group_object(kv.key, CASE kv.type WHEN 'true' THEN json('true') WHEN 'false' THEN json('false') WHEN 'array' THEN json(kv.value) WHEN 'object' THEN json(kv.value) ELSE kv.value END)
+                              FROM json_each(json_array(CASE WHEN typeof(metadata) <> 'text' OR json_valid(metadata) THEN json(metadata) ELSE json('{}') END, json(?10))) AS source, json_each(source.value) AS kv
+                              WHERE source.key = 1 OR NOT EXISTS (SELECT 1 FROM json_each(json(?10)) AS updates WHERE updates.key = kv.key))
                         ELSE metadata END,
     scheduled_at = CASE WHEN /* NOT should_cancel */(cast(?1 AS text) <> 'available' AND ?1 <> 'retryable' AND ?1 <> 'scheduled' OR (CASE WHEN typeof(metadata) <> 'text' OR json_valid(metadata) THEN metadata -> 'cancel_attempted_at' END) IS NULL) AND cast(?11 AS boolean)
                         THEN cast(?12 AS text)
@@ -1983,6 +2004,9 @@ type JobSetStateIfRunningRow struct {
 // `cancel_attempted_at`, and is left in place instead of being merged into.
 // Columns are listed out to tolerate values that aren't valid JSON. See
 // JobGetAvailable.
+//
+// Metadata is merged shallowly like Postgres' `||`. See
+// JobSetMetadataIfNotRunning.
 func (q *Queries) JobSetStateIfRunning(ctx context.Context, db DBTX, arg *JobSetStateIfRunningParams) (*JobSetStateIfRunningRow, error) {
 	row := db.QueryRowContext(ctx, jobSetStateIfRunning,
 		arg.State,
@@ -2026,7 +2050,11 @@ func (q *Queries) JobSetStateIfRunning(ctx context.Context, db DBTX, arg *JobSet
 const jobUpdate = `-- name: JobUpdate :one
 UPDATE /* TEMPLATE: schema */river_job
 SET
-    metadata = CASE WHEN cast(?1 AS boolean) THEN jsonb_patch(json(metadata), json(?2)) ELSE metadata END
+    metadata = CASE WHEN cast(?1 AS boolean)
+                    THEN (SELECT jsonb_group_object(kv.key, CASE kv.type WHEN 'true' THEN json('true') WHEN 'false' THEN json('false') WHEN 'array' THEN json(kv.value) WHEN 'object' THEN json(kv.value) ELSE kv.value END)
+                          FROM json_each(json_array(json(metadata), json(?2))) AS source, json_each(source.value) AS kv
+                          WHERE source.key = 1 OR NOT EXISTS (SELECT 1 FROM json_each(json(?2)) AS updates WHERE updates.key = kv.key))
+                    ELSE metadata END
 WHERE id = ?3
 RETURNING id, json(args), attempt, attempted_at, json(attempted_by), created_at, json(errors), finalized_at, kind, max_attempts, json(metadata), priority, queue, state, scheduled_at, json(tags), unique_key, unique_states
 `
@@ -2037,6 +2065,8 @@ type JobUpdateParams struct {
 	ID              int64
 }
 
+// Metadata is merged shallowly like Postgres' `||`. See
+// JobSetMetadataIfNotRunning.
 func (q *Queries) JobUpdate(ctx context.Context, db DBTX, arg *JobUpdateParams) (*RiverJob, error) {
 	row := db.QueryRowContext(ctx, jobUpdate, arg.MetadataDoMerge, arg.Metadata, arg.ID)
 	var i RiverJob

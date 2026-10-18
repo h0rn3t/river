@@ -336,6 +336,26 @@ func TestReplacer(t *testing.T) {
 		require.Len(t, replacer.cache, 5)
 	})
 
+	t.Run("NamedArgsMissing", func(t *testing.T) {
+		t.Parallel()
+
+		replacer, _ := setup(t)
+
+		// `@kind_name` is present, but that must not satisfy `@kind`.
+		ctx := WithReplacements(ctx, map[string]Replacement{
+			"where_clause": {Value: "kind_name = @kind_name"},
+		}, map[string]any{
+			"kind": "no_op",
+		})
+
+		_, _, err := replacer.RunSafely(ctx, "$", `
+			SELECT count(*)
+			FROM river_job
+			WHERE /* TEMPLATE_BEGIN: where_clause */ true /* TEMPLATE_END */;
+		`, nil)
+		require.EqualError(t, err, `sqltemplate expected to find named arg "@kind", but it wasn't present`)
+	})
+
 	t.Run("NamedArgsNoInitialArgs", func(t *testing.T) {
 		t.Parallel()
 
@@ -358,6 +378,71 @@ func TestReplacer(t *testing.T) {
 			SELECT count(*)
 			FROM river_job
 			WHERE kind = $1;
+		`, updatedSQL)
+	})
+
+	t.Run("NamedArgsOverlappingNames", func(t *testing.T) {
+		t.Parallel()
+
+		replacer, _ := setup(t)
+
+		// Each name is a prefix of another. Sorted, `after` and `kind` are
+		// numbered before `after_id` and `kind_name`, which must not cause
+		// them to clobber the longer names.
+		ctx := WithReplacements(ctx, map[string]Replacement{
+			"where_clause": {Value: "kind = @kind AND kind_name = @kind_name AND id > @after_id AND created_at > @after AND tags @> @tags AND kind = @kind"},
+		}, map[string]any{
+			"after":     "2025-01-01",
+			"after_id":  123,
+			"kind":      "no_op",
+			"kind_name": "custom",
+			"tags":      []string{"a"},
+		})
+
+		const sql = `
+			SELECT count(*)
+			FROM river_job
+			WHERE /* TEMPLATE_BEGIN: where_clause */ true /* TEMPLATE_END */;
+		`
+
+		updatedSQL, args, err := replacer.RunSafely(ctx, "$", sql, nil)
+		require.NoError(t, err)
+		require.Equal(t, []any{"2025-01-01", 123, "no_op", "custom", []string{"a"}}, args)
+		require.Equal(t, `
+			SELECT count(*)
+			FROM river_job
+			WHERE kind = $3 AND kind_name = $4 AND id > $2 AND created_at > $1 AND tags @> $5 AND kind = $3;
+		`, updatedSQL)
+
+		require.NotPanics(t, func() { replacer.Run(ctx, "$", sql, nil) })
+	})
+
+	t.Run("NamedArgsSQLServerPlaceholder", func(t *testing.T) {
+		t.Parallel()
+
+		replacer, _ := setup(t)
+
+		// A placeholder like `@p1` must not be rescanned as a named arg, and
+		// system variables like `@@ROWCOUNT` and unknown symbols like
+		// `@other` are left untouched.
+		ctx := WithReplacements(ctx, map[string]Replacement{
+			"where_clause": {Value: "kind = @kind AND p1 = @p1 AND @@ROWCOUNT > 0 AND x = @other"},
+		}, map[string]any{
+			"kind": "no_op",
+			"p1":   "val",
+		})
+
+		updatedSQL, args, err := replacer.RunSafely(ctx, "@p", `
+			SELECT count(*)
+			FROM river_job
+			WHERE /* TEMPLATE_BEGIN: where_clause */ 1 = 1 /* TEMPLATE_END */;
+		`, nil)
+		require.NoError(t, err)
+		require.Equal(t, []any{"no_op", "val"}, args)
+		require.Equal(t, `
+			SELECT count(*)
+			FROM river_job
+			WHERE kind = @p1 AND p1 = @p2 AND @@ROWCOUNT > 0 AND x = @other;
 		`, updatedSQL)
 	})
 

@@ -161,6 +161,61 @@ func TestResumableStep(t *testing.T) {
 		require.Equal(t, []string{"step1", "step2"}, ran)
 		require.Equal(t, "step1", metadataUpdates[rivercommon.MetadataKeyResumableStep])
 	})
+
+	t.Run("SavesLastCompletedStepOnPanic", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, metadataUpdates, job := setup(t, `{}`)
+
+		require.PanicsWithValue(t, "step2 panicked", func() {
+			_ = (&riverplugin.ResumableMiddleware{}).Work(ctx, job, func(ctx context.Context) error {
+				ResumableStep(ctx, "step1", nil, func(ctx context.Context) error { return nil })
+				ResumableStep(ctx, "step2", nil, func(ctx context.Context) error { panic("step2 panicked") })
+
+				return nil
+			})
+		})
+		require.Equal(t, "step1", metadataUpdates[rivercommon.MetadataKeyResumableStep])
+	})
+
+	// Simulates progress persisted by ResumableSetStepTx. Its transaction may
+	// have been rolled back, so in-memory progress isn't written when the
+	// attempt ends.
+	t.Run("SavesNothingAfterProgressPersistedInTx", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, metadataUpdates, job := setup(t, `{}`)
+
+		err := (&riverplugin.ResumableMiddleware{}).Work(ctx, job, func(ctx context.Context) error {
+			ResumableStep(ctx, "step1", nil, func(ctx context.Context) error { return nil })
+			ResumableStep(ctx, "step2", nil, func(ctx context.Context) error {
+				mustResumableState(ctx).PersistedInTx = true
+				return errors.New("step2 failed")
+			})
+
+			return nil
+		})
+		require.EqualError(t, err, "step2 failed")
+		require.Empty(t, metadataUpdates)
+	})
+
+	t.Run("SavesProgressAfterProgressPersistedInTx", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, metadataUpdates, job := setup(t, `{}`)
+
+		err := (&riverplugin.ResumableMiddleware{}).Work(ctx, job, func(ctx context.Context) error {
+			ResumableStep(ctx, "step1", nil, func(ctx context.Context) error {
+				mustResumableState(ctx).PersistedInTx = true
+				return nil
+			})
+			ResumableStep(ctx, "step2", nil, func(ctx context.Context) error { return errors.New("step2 failed") })
+
+			return nil
+		})
+		require.EqualError(t, err, "step2 failed")
+		require.Equal(t, "step1", metadataUpdates[rivercommon.MetadataKeyResumableStep])
+	})
 }
 
 func TestResumableStepCursor(t *testing.T) {
@@ -299,6 +354,40 @@ func TestResumableStepCursor(t *testing.T) {
 		// cursor and re-run step2 instead of skipping it.
 		require.Contains(t, metadataUpdates, rivercommon.MetadataKeyResumableCursor)
 		require.Nil(t, metadataUpdates[rivercommon.MetadataKeyResumableCursor])
+	})
+
+	t.Run("SavesCursorWithoutCompletedStep", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, metadataUpdates, job := setup(t, `{}`)
+
+		err := (&riverplugin.ResumableMiddleware{}).Work(ctx, job, func(ctx context.Context) error {
+			ResumableStepCursor(ctx, "step1", nil, func(ctx context.Context, cursor resumableCursor) error {
+				require.NoError(t, ResumableSetCursor(ctx, resumableCursor{ID: 42}))
+				return errors.New("step1 failed")
+			})
+
+			return nil
+		})
+		require.EqualError(t, err, "step1 failed")
+		require.NotContains(t, metadataUpdates, rivercommon.MetadataKeyResumableStep)
+		cursorMetadata, err := json.Marshal(metadataUpdates[rivercommon.MetadataKeyResumableCursor])
+		require.NoError(t, err)
+		require.JSONEq(t, `{"step1":{"id":42}}`, string(cursorMetadata))
+
+		ctx, _, job = setup(t, `{"river:resumable_cursor":{"step1":{"id":42}}}`)
+
+		var cursorResult resumableCursor
+		err = (&riverplugin.ResumableMiddleware{}).Work(ctx, job, func(ctx context.Context) error {
+			ResumableStepCursor(ctx, "step1", nil, func(ctx context.Context, cursor resumableCursor) error {
+				cursorResult = cursor
+				return nil
+			})
+
+			return nil
+		})
+		require.NoError(t, err)
+		require.Equal(t, resumableCursor{ID: 42}, cursorResult)
 	})
 
 	t.Run("SetCursorOutsideStep", func(t *testing.T) {

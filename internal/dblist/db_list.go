@@ -165,7 +165,11 @@ func JobMakeDriverParams(ctx context.Context, params *JobListParams, sqlFragment
 	for _, where := range params.Where {
 		writeAndAfterFirst()
 
+		// Parenthesize each predicate so that one containing a top-level `OR`
+		// can't escape the `AND` joining it to the other predicates.
+		whereBuilder.WriteString("(")
 		whereBuilder.WriteString(where.SQL)
+		whereBuilder.WriteString(")")
 		for name, val := range where.NamedArgs {
 			expectedSymbol := "@" + name
 			if !strings.Contains(where.SQL, expectedSymbol) {

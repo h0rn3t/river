@@ -255,6 +255,28 @@ func exerciseQueue[TTx any](ctx context.Context, t *testing.T, executorWithTx fu
 			require.Equal(t, []string{queue3.Name, queue1.Name}, queueNames)
 		})
 
+		t.Run("ExcludesMultipleQueueNamesInExcludeList", func(t *testing.T) { //nolint:dupl
+			t.Parallel()
+
+			exec, _ := setup(ctx, t)
+
+			queue1 := testfactory.Queue(ctx, t, exec, &testfactory.QueueOpts{Name: new("queue_aaa")})
+			queue2 := testfactory.Queue(ctx, t, exec, &testfactory.QueueOpts{Name: new("queue_bbb")})
+			queue3 := testfactory.Queue(ctx, t, exec, &testfactory.QueueOpts{Name: new("queue_ccc")})
+			queue4 := testfactory.Queue(ctx, t, exec, &testfactory.QueueOpts{Name: new("queue_ddd")})
+			queue5 := testfactory.Queue(ctx, t, exec, &testfactory.QueueOpts{Name: new("queue_eee")})
+
+			queueNames, err := exec.QueueNameList(ctx, &riverdriver.QueueNameListParams{
+				After:   "",
+				Exclude: []string{queue1.Name, queue3.Name, queue5.Name},
+				Match:   "queue",
+				Max:     10,
+				Schema:  "",
+			})
+			require.NoError(t, err)
+			require.Equal(t, []string{queue2.Name, queue4.Name}, queueNames)
+		})
+
 		t.Run("ListsQueuesWithSubstringMatch", func(t *testing.T) {
 			t.Parallel()
 
@@ -536,6 +558,21 @@ func exerciseQueue[TTx any](ctx context.Context, t *testing.T, executorWithTx fu
 
 			updatedQueue, err := exec.QueueUpdate(ctx, &riverdriver.QueueUpdateParams{
 				Metadata:         []byte(`{"baz": "qux"}`),
+				MetadataDoUpdate: false,
+				Name:             queue.Name,
+			})
+			require.NoError(t, err)
+			require.JSONEq(t, `{"foo": "bar"}`, string(updatedQueue.Metadata))
+		})
+
+		t.Run("DoesNotUpdateFieldsIfDoUpdateIsFalseWithNilMetadata", func(t *testing.T) {
+			t.Parallel()
+
+			exec, _ := setup(ctx, t)
+
+			queue := testfactory.Queue(ctx, t, exec, &testfactory.QueueOpts{Metadata: []byte(`{"foo": "bar"}`)})
+
+			updatedQueue, err := exec.QueueUpdate(ctx, &riverdriver.QueueUpdateParams{
 				MetadataDoUpdate: false,
 				Name:             queue.Name,
 			})

@@ -41,6 +41,7 @@ var migrationFS embed.FS
 // Driver is an implementation of riverdriver.Driver for Pgx v5.
 type Driver struct {
 	dbPool               *pgxpool.Pool
+	poolQueryExecMode    queryExecModeCache
 	postgresCapabilities atomic.Pointer[riverdriver.PostgresCapabilities]
 	replacer             sqlctemplate.Replacer
 }
@@ -63,13 +64,20 @@ func New(dbPool *pgxpool.Pool) *Driver {
 	}
 }
 
-const argPlaceholder = "$"
+const (
+	argPlaceholder = "$"
+
+	// pgErrCodeFeatureNotSupported is Postgres' `feature_not_supported` error
+	// code, which Postgres-compatible databases raise for features they don't
+	// implement.
+	pgErrCodeFeatureNotSupported = "0A000"
+)
 
 func (d *Driver) ArgPlaceholder() string { return argPlaceholder }
 func (d *Driver) DatabaseName() string   { return riverdriver.DatabaseNamePostgres }
 
 func (d *Driver) GetExecutor() riverdriver.Executor {
-	return &Executor{templateReplaceWrapper{d.dbPool, &d.replacer}, d}
+	return &Executor{templateReplaceWrapper{dbtx: d.dbPool, queryExecMode: &d.poolQueryExecMode, replacer: &d.replacer}, d}
 }
 
 func (d *Driver) GetListener(params *riverdriver.GetListenenerParams) riverdriver.Listener {
@@ -123,7 +131,7 @@ func (d *Driver) UnwrapExecutor(tx pgx.Tx) riverdriver.ExecutorTx {
 		replacer = &d.replacer
 	}
 
-	return &ExecutorTx{Executor: Executor{templateReplaceWrapper{tx, replacer}, d}, tx: tx}
+	return &ExecutorTx{Executor: Executor{templateReplaceWrapper{dbtx: tx, queryExecMode: &queryExecModeCache{}, replacer: replacer}, d}, tx: tx}
 }
 
 func (d *Driver) UnwrapTx(execTx riverdriver.ExecutorTx) pgx.Tx { return execTx.(*ExecutorTx).tx } //nolint:forcetypeassert
@@ -138,22 +146,22 @@ func (e *Executor) Begin(ctx context.Context) (riverdriver.ExecutorTx, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ExecutorTx{Executor: Executor{templateReplaceWrapper{tx, &e.driver.replacer}, e.driver}, tx: tx}, nil
+	// Take the replacer from the executor rather than the driver because the
+	// driver may be nil (see UnwrapExecutor).
+	return &ExecutorTx{Executor: Executor{templateReplaceWrapper{dbtx: tx, queryExecMode: &queryExecModeCache{}, replacer: e.dbtx.replacer}, e.driver}, tx: tx}, nil
 }
 
 func (e *Executor) ColumnExists(ctx context.Context, params *riverdriver.ColumnExistsParams) (bool, error) {
-	// Schema injection is a bit different on this one because we're querying a table with a schema name.
-	schema := "CURRENT_SCHEMA"
+	// Like TableExists, the table name is a parameter, and is resolved through
+	// `search_path` if no schema was given.
+	schemaAndTable := params.Table
 	if params.Schema != "" {
-		schema = "'" + params.Schema + "'"
+		schemaAndTable = dbutil.SafeIdentifier(params.Schema) + "." + schemaAndTable
 	}
-	ctx = sqlctemplate.WithReplacements(ctx, map[string]sqlctemplate.Replacement{
-		"schema": {Value: schema},
-	}, nil)
 
 	exists, err := dbsqlc.New().ColumnExists(ctx, e.dbtx, &dbsqlc.ColumnExistsParams{
-		ColumnName: params.Column,
-		TableName:  params.Table,
+		ColumnName:     params.Column,
+		SchemaAndTable: schemaAndTable,
 	})
 	return exists, interpretError(err)
 }
@@ -400,8 +408,14 @@ func (e *Executor) JobInsertFastMany(ctx context.Context, params *riverdriver.Jo
 		uniqueNonce = randutil.Hex(8)
 	}
 
+	idSequence := "river_job_id_seq"
+	if params.Schema != "" {
+		idSequence = dbutil.SafeIdentifier(params.Schema) + "." + idSequence
+	}
+
 	insertJobsParams := &dbsqlc.JobInsertFastManyParams{
 		ID:           make([]int64, len(params.Jobs)),
+		IDSequence:   idSequence,
 		Args:         make([][]byte, len(params.Jobs)),
 		CreatedAt:    make([]time.Time, len(params.Jobs)),
 		Kind:         make([]string, len(params.Jobs)),
@@ -923,6 +937,30 @@ func (e *Executor) MigrationInsertManyAssumingMain(ctx context.Context, params *
 	}), nil
 }
 
+func (e *Executor) MigrationLock(ctx context.Context, params *riverdriver.MigrationLockParams) error {
+	// Take the lock in a savepoint so that if the database doesn't support
+	// advisory locks (Yugabyte may have them disabled), the enclosing
+	// transaction isn't aborted and migrations proceed unserialized as they
+	// did before locking was introduced.
+	savepoint, err := e.dbtx.Begin(ctx)
+	if err != nil {
+		return interpretError(err)
+	}
+	defer func() { _ = savepoint.Rollback(context.WithoutCancel(ctx)) }() // no-op after commit
+
+	if err := dbsqlc.New().RiverMigrationLock(ctx, templateReplaceWrapper{dbtx: savepoint, queryExecMode: e.dbtx.queryExecMode, replacer: e.dbtx.replacer}, &dbsqlc.RiverMigrationLockParams{
+		Line:   params.Line,
+		Schema: pgtype.Text{String: params.Schema, Valid: params.Schema != ""},
+	}); err != nil {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgErrCodeFeatureNotSupported {
+			return nil
+		}
+		return interpretError(err)
+	}
+
+	return interpretError(savepoint.Commit(ctx))
+}
+
 func (e *Executor) NotificationDeleteBefore(ctx context.Context, params *riverdriver.NotificationDeleteBeforeParams) (int, error) {
 	numDeleted, err := dbsqlc.New().NotificationDeleteBefore(schemaTemplateParam(ctx, params.Schema), e.dbtx, &dbsqlc.NotificationDeleteBeforeParams{
 		CreatedAtHorizon: params.CreatedAtHorizon,
@@ -1223,7 +1261,7 @@ func (l *Listener) Listen(ctx context.Context, topic string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	_, err := l.conn.Exec(ctx, "LISTEN \""+l.prefix+topic+"\"")
+	_, err := l.conn.Exec(ctx, "LISTEN "+pgx.Identifier{l.prefix + topic}.Sanitize())
 	return err
 }
 
@@ -1252,7 +1290,7 @@ func (l *Listener) Unlisten(ctx context.Context, topic string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	_, err := l.conn.Exec(ctx, "UNLISTEN \""+l.prefix+topic+"\"")
+	_, err := l.conn.Exec(ctx, "UNLISTEN "+pgx.Identifier{l.prefix + topic}.Sanitize())
 	return err
 }
 
@@ -1271,12 +1309,40 @@ func (l *Listener) WaitForNotification(ctx context.Context) (*riverdriver.Notifi
 	}, nil
 }
 
+// queryExecModeCache memoizes the default query exec mode of a pool or
+// transaction because reading it through Config() makes a deep copy of the
+// configuration, which is too expensive to do on every query. The zero value
+// is ready to use.
+type queryExecModeCache struct {
+	mode pgx.QueryExecMode
+	once sync.Once
+}
+
+func (c *queryExecModeCache) get(dbtx any) pgx.QueryExecMode {
+	c.once.Do(func() {
+		c.mode = pgx.QueryExecModeCacheStatement
+		if poolWithConfig, ok := dbtx.(interface{ Config() *pgxpool.Config }); ok {
+			if config := poolWithConfig.Config(); config != nil {
+				c.mode = config.ConnConfig.DefaultQueryExecMode
+			}
+			return
+		}
+		if txWithConn, ok := dbtx.(interface{ Conn() *pgx.Conn }); ok {
+			if conn := txWithConn.Conn(); conn != nil {
+				c.mode = conn.Config().DefaultQueryExecMode
+			}
+		}
+	})
+	return c.mode
+}
+
 type templateReplaceWrapper struct {
 	dbtx interface {
 		dbsqlc.DBTX
 		Begin(ctx context.Context) (pgx.Tx, error)
 	}
-	replacer *sqlctemplate.Replacer
+	queryExecMode *queryExecModeCache
+	replacer      *sqlctemplate.Replacer
 }
 
 func (w templateReplaceWrapper) Begin(ctx context.Context) (pgx.Tx, error) {
@@ -1284,35 +1350,31 @@ func (w templateReplaceWrapper) Begin(ctx context.Context) (pgx.Tx, error) {
 }
 
 func (w templateReplaceWrapper) defaultQueryExecMode() pgx.QueryExecMode {
-	if poolWithConfig, ok := any(w.dbtx).(interface{ Config() *pgxpool.Config }); ok {
-		if config := poolWithConfig.Config(); config != nil {
-			return config.ConnConfig.DefaultQueryExecMode
-		}
+	if w.queryExecMode == nil {
+		return (&queryExecModeCache{}).get(w.dbtx)
 	}
-	if txWithConn, ok := any(w.dbtx).(interface{ Conn() *pgx.Conn }); ok {
-		if conn := txWithConn.Conn(); conn != nil {
-			return conn.Config().DefaultQueryExecMode
-		}
-	}
-	return pgx.QueryExecModeCacheStatement
+	return w.queryExecMode.get(w.dbtx)
 }
 
 func (w templateReplaceWrapper) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	numArgs := len(args)
 	sql, args = w.replacer.Run(ctx, argPlaceholder, sql, args)
 	// Keep JSON/JSONB arguments valid in pgx text-only execution modes.
-	args = adaptArgsForJSONTextModes(w.defaultQueryExecMode(), sql, args)
+	args = adaptArgsForJSONTextModes(w.defaultQueryExecMode(), sql, args, numArgs)
 	return w.dbtx.Exec(ctx, sql, args...)
 }
 
 func (w templateReplaceWrapper) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	numArgs := len(args)
 	sql, args = w.replacer.Run(ctx, argPlaceholder, sql, args)
-	args = adaptArgsForJSONTextModes(w.defaultQueryExecMode(), sql, args)
+	args = adaptArgsForJSONTextModes(w.defaultQueryExecMode(), sql, args, numArgs)
 	return w.dbtx.Query(ctx, sql, args...)
 }
 
 func (w templateReplaceWrapper) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	numArgs := len(args)
 	sql, args = w.replacer.Run(ctx, argPlaceholder, sql, args)
-	args = adaptArgsForJSONTextModes(w.defaultQueryExecMode(), sql, args)
+	args = adaptArgsForJSONTextModes(w.defaultQueryExecMode(), sql, args, numArgs)
 	return w.dbtx.QueryRow(ctx, sql, args...)
 }
 

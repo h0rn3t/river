@@ -660,6 +660,24 @@ func TestWorker_WorkJob(t *testing.T) {
 		require.Nil(t, res)
 	})
 
+	t.Run("ErrorsWhenJobNotInDatabase", func(t *testing.T) {
+		t.Parallel()
+
+		testWorker, bundle := setup(t)
+
+		job := &rivertype.JobRow{
+			EncodedArgs: []byte(`{"value": "test"}`),
+			ID:          123_456_789,
+			Kind:        (testArgs{}).Kind(),
+			State:       rivertype.JobStateAvailable,
+		}
+
+		res, err := testWorker.WorkJob(ctx, t, bundle.tx, job)
+		require.ErrorIs(t, err, rivertype.ErrNotFound)
+		require.ErrorContains(t, err, "job 123456789 not found")
+		require.Nil(t, res)
+	})
+
 	// Honors config.Schema: River lives in a named schema, worked through a
 	// transaction with an empty search_path so tables resolve only via schema
 	// qualification. Needs its own infrastructure, so it skips setup.

@@ -55,6 +55,25 @@ func TestNew(t *testing.T) {
 	})
 }
 
+func TestExecutor_BeginWithNilDriver(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPool := testPool(ctx, t, nil)
+
+	tx, err := dbPool.Begin(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	// UnwrapExecutor supports a nil driver, so savepoints begun from its
+	// executor must too.
+	var driver *Driver
+	execSubTx, err := driver.UnwrapExecutor(tx).Begin(ctx)
+	require.NoError(t, err)
+	require.NoError(t, execSubTx.Exec(ctx, "SELECT 1"))
+	require.NoError(t, execSubTx.Rollback(ctx))
+}
+
 func TestExecutor_InitDriverDoesNotBlockTransaction(t *testing.T) {
 	t.Parallel()
 
@@ -352,6 +371,19 @@ func TestSchemaTemplateParam(t *testing.T) {
 	})
 }
 
+// connCountingDBTX counts calls to Conn, which is how the default query exec
+// mode is read from a transaction.
+type connCountingDBTX struct {
+	nilConnDBTX
+
+	numConnCalls int
+}
+
+func (d *connCountingDBTX) Conn() *pgx.Conn {
+	d.numConnCalls++
+	return nil
+}
+
 type nilConnDBTX struct{}
 
 func (nilConnDBTX) Begin(context.Context) (pgx.Tx, error) { panic("unused") }
@@ -391,6 +423,21 @@ func (unexpectedPanicConnDBTX) QueryRow(context.Context, string, ...any) pgx.Row
 
 func TestTemplateReplaceWrapper_DefaultQueryExecMode(t *testing.T) {
 	t.Parallel()
+
+	t.Run("CachesMode", func(t *testing.T) {
+		t.Parallel()
+
+		dbtx := &connCountingDBTX{}
+		wrapper := templateReplaceWrapper{
+			dbtx:          dbtx,
+			queryExecMode: &queryExecModeCache{},
+			replacer:      &sqlctemplate.Replacer{},
+		}
+
+		require.Equal(t, pgx.QueryExecModeCacheStatement, wrapper.defaultQueryExecMode())
+		require.Equal(t, pgx.QueryExecModeCacheStatement, wrapper.defaultQueryExecMode())
+		require.Equal(t, 1, dbtx.numConnCalls)
+	})
 
 	t.Run("FallsBackToCacheStatementIfConnIsNil", func(t *testing.T) {
 		t.Parallel()
@@ -535,7 +582,7 @@ func TestAdaptArgsForJSONTextModes(t *testing.T) {
 			[]byte{0x01, 0x02},
 			[][]byte{[]byte(`{"b":2}`), []byte(`{"c":3}`)},
 		}
-		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeSimpleProtocol, "SELECT $1::jsonb, $2::bytea, $3::jsonb[]", args)
+		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeSimpleProtocol, "SELECT $1::jsonb, $2::bytea, $3::jsonb[]", args, len(args))
 
 		require.IsType(t, json.RawMessage{}, updatedArgs[0])
 		require.JSONEq(t, `{"a":1}`, string(updatedArgs[0].(json.RawMessage))) //nolint:forcetypeassert
@@ -562,11 +609,37 @@ func TestAdaptArgsForJSONTextModes(t *testing.T) {
 			pgx.QueryExecModeSimpleProtocol,
 			"INSERT INTO river_job(args, errors, unique_key) VALUES ($1, $2, unnest($3::bytea[]))",
 			args,
+			len(args),
 		)
 
 		require.IsType(t, json.RawMessage{}, updatedArgs[0])
 		require.IsType(t, []json.RawMessage{}, updatedArgs[1])
 		require.IsType(t, [][]byte{}, updatedArgs[2])
+	})
+
+	t.Run("PreservesUncastNamedArgs", func(t *testing.T) {
+		t.Parallel()
+
+		// The first arg comes from the generated query, while the others are
+		// named args appended by sqlctemplate (e.g. from JobListParams.Where).
+		// An uncast named arg may be intended as bytea, so it's left alone,
+		// but one explicitly cast to jsonb is still adapted.
+		args := []any{
+			[]byte(`{"a":1}`),
+			[]byte{0x00, 0xff, '\\'},
+			[]byte(`{"b":2}`),
+		}
+		updatedArgs := adaptArgsForJSONTextModes(
+			pgx.QueryExecModeSimpleProtocol,
+			"SELECT * FROM river_job WHERE args = $1 AND unique_key = $2 AND metadata @> $3::jsonb",
+			args,
+			1,
+		)
+
+		require.IsType(t, json.RawMessage{}, updatedArgs[0])
+		require.IsType(t, []byte{}, updatedArgs[1])
+		require.Equal(t, []byte{0x00, 0xff, '\\'}, updatedArgs[1])
+		require.IsType(t, json.RawMessage{}, updatedArgs[2])
 	})
 
 	t.Run("PreservesByteSliceForCastFunctionBytea", func(t *testing.T) {
@@ -579,6 +652,7 @@ func TestAdaptArgsForJSONTextModes(t *testing.T) {
 			pgx.QueryExecModeSimpleProtocol,
 			"SELECT encode(CAST($1 AS bytea), 'hex')",
 			args,
+			len(args),
 		)
 
 		require.IsType(t, []byte{}, updatedArgs[0])
@@ -589,7 +663,7 @@ func TestAdaptArgsForJSONTextModes(t *testing.T) {
 		t.Parallel()
 
 		var errors [][]byte
-		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeSimpleProtocol, "INSERT INTO river_job(errors) VALUES ($1)", []any{errors})
+		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeSimpleProtocol, "INSERT INTO river_job(errors) VALUES ($1)", []any{errors}, 1)
 
 		converted, ok := updatedArgs[0].([]json.RawMessage)
 		require.True(t, ok)
@@ -600,7 +674,7 @@ func TestAdaptArgsForJSONTextModes(t *testing.T) {
 		t.Parallel()
 
 		args := []any{[]byte(`{"x":1}`)}
-		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeExec, "SELECT $1::jsonb", args)
+		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeExec, "SELECT $1::jsonb", args, len(args))
 
 		require.IsType(t, json.RawMessage{}, updatedArgs[0])
 		require.JSONEq(t, `{"x":1}`, string(updatedArgs[0].(json.RawMessage))) //nolint:forcetypeassert
@@ -610,7 +684,7 @@ func TestAdaptArgsForJSONTextModes(t *testing.T) {
 		t.Parallel()
 
 		args := []any{[]byte(`{"x":1}`), [][]byte{[]byte(`{"y":2}`)}}
-		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeCacheStatement, "SELECT $1::jsonb, $2::jsonb[]", args)
+		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeCacheStatement, "SELECT $1::jsonb, $2::jsonb[]", args, len(args))
 
 		require.IsType(t, []byte{}, updatedArgs[0])
 		require.IsType(t, [][]byte{}, updatedArgs[1])
@@ -624,7 +698,7 @@ func TestAdaptArgsForJSONTextModes(t *testing.T) {
 			[]byte(`{"x":1}`),
 			[][]byte{[]byte(`{"y":2}`)},
 		}
-		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeCacheStatement, "SELECT $1::jsonb, $2::jsonb[]", args)
+		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeCacheStatement, "SELECT $1::jsonb, $2::jsonb[]", args, len(args))
 
 		require.Equal(t, pgx.QueryExecModeSimpleProtocol, updatedArgs[0])
 		require.IsType(t, json.RawMessage{}, updatedArgs[1])
@@ -638,7 +712,7 @@ func TestAdaptArgsForJSONTextModes(t *testing.T) {
 			pgx.QueryExecModeCacheStatement,
 			[]byte(`{"x":1}`),
 		}
-		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeSimpleProtocol, "SELECT $1::jsonb", args)
+		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeSimpleProtocol, "SELECT $1::jsonb", args, len(args))
 
 		require.Equal(t, pgx.QueryExecModeCacheStatement, updatedArgs[0])
 		require.IsType(t, []byte{}, updatedArgs[1])
@@ -652,7 +726,7 @@ func TestAdaptArgsForJSONTextModes(t *testing.T) {
 			pgx.QueryExecModeSimpleProtocol,
 			[]byte(`{"x":1}`),
 		}
-		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeCacheStatement, "SELECT $1::jsonb", args)
+		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeCacheStatement, "SELECT $1::jsonb", args, len(args))
 
 		require.IsType(t, pgx.QueryResultFormats{}, updatedArgs[0])
 		require.Equal(t, pgx.QueryExecModeSimpleProtocol, updatedArgs[1])
@@ -666,7 +740,7 @@ func TestAdaptArgsForJSONTextModes(t *testing.T) {
 			passthroughQueryRewriter{},
 			[]byte(`{"x":1}`),
 		}
-		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeSimpleProtocol, "SELECT $1::jsonb", args)
+		updatedArgs := adaptArgsForJSONTextModes(pgx.QueryExecModeSimpleProtocol, "SELECT $1::jsonb", args, len(args))
 
 		// Bind args are unchanged before rewrite.
 		require.IsType(t, []byte{}, updatedArgs[1])

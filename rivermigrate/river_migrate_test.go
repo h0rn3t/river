@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"testing"
+	"testing/fstest"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -283,6 +284,31 @@ func TestMigrator(t *testing.T) {
 
 		err = dbExecError(ctx, bundle.driver.GetExecutor(), fmt.Sprintf("SELECT name FROM %s.test_table", bundle.schema))
 		require.Error(t, err)
+	})
+
+	t.Run("MigrateDownWithMaxStepsAndTargetVersion", func(t *testing.T) {
+		t.Parallel()
+
+		migrator, bundle := setup(t)
+
+		_, err := migrator.Migrate(ctx, DirectionUp, &MigrateOpts{})
+		require.NoError(t, err)
+
+		// The target is applied but beyond the one-step limit, so only the
+		// latest migration should be removed.
+		res, err := migrator.Migrate(ctx, DirectionDown, &MigrateOpts{
+			MaxSteps:      1,
+			TargetVersion: 4,
+		})
+		require.NoError(t, err)
+		require.Equal(t, []int{migrationsBundle.WithTestVersionsMaxVersion}, sliceutil.Map(res.Versions, migrateVersionToInt))
+
+		migrations, err := bundle.driver.GetExecutor().MigrationGetByLine(ctx, &riverdriver.MigrationGetByLineParams{
+			Line:   riverdriver.MigrationLineMain,
+			Schema: bundle.schema,
+		})
+		require.NoError(t, err)
+		require.Equal(t, seqOneTo(migrationsBundle.WithTestVersionsMaxVersion-1), sliceutil.Map(migrations, driverMigrationToInt))
 	})
 
 	t.Run("MigrateDownWithPool", func(t *testing.T) {
@@ -1128,6 +1154,22 @@ func TestMigrationsFromFS(t *testing.T) {
 
 		_, err := migrationsFromFS(migrationFS, "does_not_exist")
 		require.EqualError(t, err, `no migrations found for line: "does_not_exist"`)
+	})
+
+	t.Run("LineIsPrefixOfAnotherLine", func(t *testing.T) {
+		t.Parallel()
+
+		migrationFS := fstest.MapFS{
+			"migration/main/001_first.down.sql":    {Data: []byte("SELECT 1;\n")},
+			"migration/main/001_first.up.sql":      {Data: []byte("SELECT 1;\n")},
+			"migration/main_v2/001_other.down.sql": {Data: []byte("SELECT 2;\n")},
+			"migration/main_v2/001_other.up.sql":   {Data: []byte("SELECT 2;\n")},
+		}
+
+		migrations, err := migrationsFromFS(migrationFS, "main")
+		require.NoError(t, err)
+		require.Len(t, migrations, 1)
+		require.Equal(t, Migration{Name: "first", SQLDown: "SELECT 1;\n", SQLUp: "SELECT 1;\n", Version: 1}, migrations[0])
 	})
 }
 

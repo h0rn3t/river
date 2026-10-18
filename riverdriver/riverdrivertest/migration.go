@@ -2,10 +2,13 @@ package riverdrivertest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -14,6 +17,11 @@ import (
 	"github.com/h0rn3t/river/rivermigrate"
 	"github.com/h0rn3t/river/rivershared/riversharedtest"
 	"github.com/h0rn3t/river/rivershared/testfactory"
+	"github.com/h0rn3t/river/rivershared/testsignal"
+	"github.com/h0rn3t/river/rivershared/uniquestates"
+	"github.com/h0rn3t/river/rivershared/util/dbutil"
+	"github.com/h0rn3t/river/rivershared/util/sliceutil"
+	"github.com/h0rn3t/river/rivertype"
 )
 
 func exerciseMigration[TTx any](ctx context.Context, t *testing.T,
@@ -146,6 +154,61 @@ func exerciseMigration[TTx any](ctx context.Context, t *testing.T,
 		}
 	})
 
+	t.Run("MigrateConcurrently", func(t *testing.T) {
+		t.Parallel()
+
+		driver, schema := driverWithSchema(ctx, t, &riverdbtest.TestSchemaOpts{
+			Lines: []string{},
+		})
+
+		newMigrator := func(t *testing.T) *rivermigrate.Migrator[TTx] {
+			t.Helper()
+
+			migrator, err := rivermigrate.New(driver, &rivermigrate.Config{
+				Line:   riverdriver.MigrationLineMain,
+				Logger: riversharedtest.Logger(t),
+				Schema: schema,
+			})
+			require.NoError(t, err)
+			return migrator
+		}
+
+		// Runs two migrators at once, returning the versions that either of
+		// them applied, sorted.
+		migrateConcurrently := func(t *testing.T, direction rivermigrate.Direction, opts *rivermigrate.MigrateOpts) []int {
+			t.Helper()
+
+			var (
+				errs    = make([]error, 2)
+				results = make([]*rivermigrate.MigrateResult, 2)
+				wg      sync.WaitGroup
+			)
+			for i := range 2 {
+				migrator := newMigrator(t)
+				wg.Go(func() { results[i], errs[i] = migrator.Migrate(ctx, direction, opts) })
+			}
+			wg.Wait()
+			require.NoError(t, errors.Join(errs...))
+
+			var versions []int
+			for _, res := range results {
+				for _, version := range res.Versions {
+					versions = append(versions, version.Version)
+				}
+			}
+			slices.Sort(versions)
+			return versions
+		}
+
+		allVersions := sliceutil.Map(newMigrator(t).AllVersions(), func(migration rivermigrate.Migration) int { return migration.Version })
+
+		// Every version is applied, then removed, exactly once across both
+		// migrators, and neither of them errors on a version that the other
+		// one already handled.
+		require.Equal(t, allVersions, migrateConcurrently(t, rivermigrate.DirectionUp, nil))
+		require.Equal(t, allVersions, migrateConcurrently(t, rivermigrate.DirectionDown, &rivermigrate.MigrateOpts{TargetVersion: -1}))
+	})
+
 	t.Run("MigrateDownFromVersionEightWithJobData", func(t *testing.T) {
 		t.Parallel()
 
@@ -171,6 +234,59 @@ func exerciseMigration[TTx any](ctx context.Context, t *testing.T,
 		job, err = exec.JobGetByID(ctx, &riverdriver.JobGetByIDParams{ID: job.ID, Schema: schema})
 		require.NoError(t, err)
 		require.NotZero(t, job.ID)
+	})
+
+	t.Run("MigrateDownFromVersionSixWithDuplicateUniqueKeys", func(t *testing.T) {
+		t.Parallel()
+
+		driver, schema := driverWithSchema(ctx, t, &riverdbtest.TestSchemaOpts{
+			DisableReuse: true,
+		})
+		if driver.DatabaseName() != riverdriver.DatabaseNamePostgres {
+			t.Skip("Skipping; duplicate unique key cleanup is only implemented for Postgres")
+		}
+		exec := driver.GetExecutor()
+
+		// Since 006, a completed job may share a unique key with a newer
+		// available one as long as completed isn't one of its unique states.
+		// These used to prevent the (kind, unique_key) index from being
+		// recreated on the way down.
+		uniqueStates := uniquestates.UniqueStatesToBitmask([]rivertype.JobState{rivertype.JobStateAvailable})
+		completedJob := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{
+			FinalizedAt:  new(time.Now()),
+			Kind:         new("duplicate_kind"),
+			Schema:       schema,
+			State:        new(rivertype.JobStateCompleted),
+			UniqueKey:    []byte("duplicate_key"),
+			UniqueStates: uniqueStates,
+		})
+		availableJob := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{
+			Kind:         new("duplicate_kind"),
+			Schema:       schema,
+			State:        new(rivertype.JobStateAvailable),
+			UniqueKey:    []byte("duplicate_key"),
+			UniqueStates: uniqueStates,
+		})
+
+		migrator, err := rivermigrate.New(driver, &rivermigrate.Config{
+			Line:   riverdriver.MigrationLineMain,
+			Logger: riversharedtest.Logger(t),
+			Schema: schema,
+		})
+		require.NoError(t, err)
+
+		_, err = migrator.Migrate(ctx, rivermigrate.DirectionDown, &rivermigrate.MigrateOpts{
+			TargetVersion: 5,
+		})
+		require.NoError(t, err)
+
+		// The key is kept on the job where it was still enforced.
+		var keptJobID int64
+		require.NoError(t, exec.QueryRow(ctx,
+			fmt.Sprintf("SELECT id FROM %s.river_job WHERE unique_key IS NOT NULL", dbutil.SafeIdentifier(schema)),
+		).Scan(&keptJobID))
+		require.Equal(t, availableJob.ID, keptJobID)
+		require.NotEqual(t, completedJob.ID, keptJobID)
 	})
 
 	t.Run("MigrateUpFromVersionSevenWithJobData", func(t *testing.T) {
@@ -536,5 +652,61 @@ func exerciseMigration[TTx any](ctx context.Context, t *testing.T,
 		require.Equal(t, 1, migrations[0].Version)
 		require.Equal(t, riverdriver.MigrationLineMain, migrations[1].Line)
 		require.Equal(t, 2, migrations[1].Version)
+	})
+
+	t.Run("MigrationLock", func(t *testing.T) {
+		t.Parallel()
+
+		driver, schema := driverWithSchema(ctx, t, nil)
+		exec := driver.GetExecutor()
+
+		lockParams := &riverdriver.MigrationLockParams{Line: riverdriver.MigrationLineMain, Schema: schema}
+
+		execTx, err := exec.Begin(ctx)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = execTx.Rollback(context.WithoutCancel(ctx)) })
+
+		require.NoError(t, execTx.MigrationLock(ctx, lockParams))
+
+		// SQLite's implementation is a no-op because its write transactions
+		// are serialized. Test pools also only have one connection, so a
+		// second transaction couldn't start anyway.
+		if driver.DatabaseName() == riverdriver.DatabaseNameSQLite {
+			return
+		}
+
+		// Acquires the lock in a separate transaction, holding it until
+		// returning.
+		lockInOtherTx := func(ctx context.Context, params *riverdriver.MigrationLockParams) error {
+			otherExecTx, err := exec.Begin(ctx)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = otherExecTx.Rollback(context.WithoutCancel(ctx)) }()
+
+			return otherExecTx.MigrationLock(ctx, params)
+		}
+
+		// A lock on another line doesn't conflict.
+		{
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+
+			require.NoError(t, lockInOtherTx(ctx, &riverdriver.MigrationLockParams{Line: "other_line", Schema: schema}))
+		}
+
+		// A lock on the same line blocks until the first transaction ends.
+		var otherLocked testsignal.TestSignal[error]
+		otherLocked.Init(t)
+		go func() { otherLocked.Signal(lockInOtherTx(ctx, lockParams)) }()
+
+		select {
+		case err := <-otherLocked.WaitC():
+			require.FailNow(t, "Lock acquired while held by another transaction", "err: %v", err)
+		case <-time.After(500 * time.Millisecond):
+		}
+
+		require.NoError(t, execTx.Rollback(ctx))
+		require.NoError(t, otherLocked.WaitOrTimeout())
 	})
 }

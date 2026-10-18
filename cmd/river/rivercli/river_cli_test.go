@@ -179,7 +179,29 @@ func TestBaseCommandSetIntegration(t *testing.T) {
 		cmd, _ := setup(t)
 
 		cmd.SetArgs([]string{"migrate-down", "--database-url", "post://"})
-		require.EqualError(t, cmd.Execute(), "unsupported database URL (`post://`); try one with a `postgres://`, `postgresql://`, `sqlite://`, or `sqlserver://` scheme/prefix")
+		require.EqualError(t, cmd.Execute(), "unsupported database URL scheme (`post://`); try one with a `postgres://`, `postgresql://`, `sqlite://`, or `sqlserver://` scheme/prefix")
+	})
+
+	t.Run("DatabaseURLWithInvalidPrefixOmitsCredentials", func(t *testing.T) {
+		t.Parallel()
+
+		cmd, _ := setup(t)
+
+		cmd.SetArgs([]string{"migrate-down", "--database-url", "postgress://user:secret@localhost/river_test"})
+		err := cmd.Execute()
+		require.EqualError(t, err, "unsupported database URL scheme (`postgress://`); try one with a `postgres://`, `postgresql://`, `sqlite://`, or `sqlserver://` scheme/prefix")
+		require.NotContains(t, err.Error(), "secret")
+	})
+
+	t.Run("DatabaseURLWithoutSchemeOmitsCredentials", func(t *testing.T) {
+		t.Parallel()
+
+		cmd, _ := setup(t)
+
+		cmd.SetArgs([]string{"migrate-down", "--database-url", "user:secret@localhost/river_test"})
+		err := cmd.Execute()
+		require.EqualError(t, err, "expected database URL to be formatted like `postgres://...`")
+		require.NotContains(t, err.Error(), "secret")
 	})
 
 	t.Run("MigrateUpWithAppliedTargetVersion", func(t *testing.T) {
@@ -597,6 +619,45 @@ func TestBaseCommandSetDriverProcurerSQLServer(t *testing.T) { //nolint:dupl // 
 -- River main migration 001 [up]
 SELECT 'up 1' FROM river_table
 		`), strings.TrimSpace(out.String()))
+}
+
+// Logs must go to stderr so that they don't mix with command output like SQL
+// printed by migrate-get.
+func TestBaseCommandSetLogsToErrOut(t *testing.T) {
+	t.Parallel()
+
+	migratorStub := &MigratorStub{}
+	migratorStub.allVersionsStub = func() []rivermigrate.Migration { return []rivermigrate.Migration{testMigration01} }
+	migratorStub.getVersionStub = func(version int) (rivermigrate.Migration, error) { return testMigration01, nil }
+	migratorStub.existingVersionsStub = func(ctx context.Context) ([]rivermigrate.Migration, error) { return nil, nil }
+
+	cli := NewCLI(&Config{
+		DriverProcurer: &DriverProcurerStub{
+			getMigratorStub: func(config *rivermigrate.Config) (MigratorInterface, error) {
+				config.Logger.Warn("Warning from migrator")
+				return migratorStub, nil
+			},
+			initSQLiteStub: func(pool *sql.DB) {},
+		},
+		Name: "River",
+	})
+
+	var out bytes.Buffer
+	cli.SetOut(&out)
+
+	cmd := cli.BaseCommandSet()
+
+	var errOut bytes.Buffer
+	cmd.SetErr(&errOut)
+
+	cmd.SetArgs([]string{"migrate-get", "--up", "--version", "1", "--database-url", "sqlite://"})
+	require.NoError(t, cmd.Execute())
+
+	require.Equal(t, strings.TrimSpace(`
+-- River main migration 001 [up]
+SELECT 'up 1' FROM river_table
+		`), strings.TrimSpace(out.String()))
+	require.Contains(t, errOut.String(), "Warning from migrator")
 }
 
 // Uses the real SQL Server driver, which doesn't need to connect to a database

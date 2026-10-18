@@ -312,6 +312,16 @@ type Executor interface {
 	// the `line` column was added to the migrations table.
 	MigrationInsertManyAssumingMain(ctx context.Context, params *MigrationInsertManyAssumingMainParams) ([]*Migration, error)
 
+	// MigrationLock acquires a lock that serializes migrators operating on the
+	// same schema and migration line. It must be invoked from within a
+	// transaction, and the lock is held until that transaction ends. If
+	// another transaction holds the lock, it blocks until the lock is
+	// released.
+	//
+	// Drivers whose write transactions are already serialized by the database
+	// may implement it as a no-op.
+	MigrationLock(ctx context.Context, params *MigrationLockParams) error
+
 	// NotificationDeleteBefore deletes up to Max notifications before a certain
 	// time horizon, oldest first.
 	//
@@ -893,6 +903,11 @@ type MigrationInsertManyParams struct {
 type MigrationInsertManyAssumingMainParams struct {
 	Schema   string
 	Versions []int
+}
+
+type MigrationLockParams struct {
+	Line   string
+	Schema string
 }
 
 // NotifyManyParams are parameters to issue many pubsub notifications all at

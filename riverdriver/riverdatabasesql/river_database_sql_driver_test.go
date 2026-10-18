@@ -64,6 +64,31 @@ func TestNew(t *testing.T) {
 	})
 }
 
+func TestExecutorTx_BeginWithNilDriver(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPool, err := sql.Open("pgx", urlutil.DatabaseSQLCompatibleURL(riversharedtest.TestDatabaseURL()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, dbPool.Close()) })
+
+	tx, err := dbPool.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback() })
+
+	// UnwrapExecutor supports a nil driver, so savepoints begun from its
+	// executor must too.
+	var driver *Driver
+	execSubTx, err := driver.UnwrapExecutor(tx).Begin(ctx)
+	require.NoError(t, err)
+
+	execSubSubTx, err := execSubTx.Begin(ctx)
+	require.NoError(t, err)
+	require.NoError(t, execSubSubTx.Exec(ctx, "SELECT 1"))
+	require.NoError(t, execSubSubTx.Rollback(ctx))
+	require.NoError(t, execSubTx.Rollback(ctx))
+}
+
 func TestExecutor_InitDriverDoesNotBlockTransaction(t *testing.T) {
 	t.Parallel()
 
@@ -170,8 +195,15 @@ func TestInterpretError(t *testing.T) {
 	t.Parallel()
 
 	require.EqualError(t, interpretError(errors.New("an error")), "an error")
+	require.ErrorIs(t, interpretError(sql.ErrConnDone), riverdriver.ErrClosedPool)
 	require.ErrorIs(t, interpretError(sql.ErrNoRows), rivertype.ErrNotFound)
 	require.NoError(t, interpretError(nil))
+
+	// Opening a pool doesn't connect, and a closed one errors before trying.
+	dbPool, err := sql.Open("pgx", "postgres://localhost/river_closed_pool_test")
+	require.NoError(t, err)
+	require.NoError(t, dbPool.Close())
+	require.ErrorIs(t, New(dbPool).GetExecutor().Exec(context.Background(), "SELECT 1"), riverdriver.ErrClosedPool)
 }
 
 func TestSchemaTemplateParam(t *testing.T) {

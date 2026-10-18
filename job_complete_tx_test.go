@@ -2,6 +2,7 @@ package river
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -143,6 +144,26 @@ func TestJobCompleteTx(t *testing.T) {
 		job.State = rivertype.JobStateRunning
 		_, err = JobCompleteTx[*riverpgxv5.Driver](ctx, bundle.tx, &Job[JobArgs]{JobRow: job})
 		require.ErrorIs(t, err, rivertype.ErrNotFound)
+	})
+
+	t.Run("ErrorIfNotRunningInDatabase", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, bundle := setup(ctx, t)
+
+		job := testfactory.Job(ctx, t, bundle.exec, &testfactory.JobOpts{
+			State: new(rivertype.JobStateAvailable),
+		})
+
+		// fake the job's state to work around the check, as if the job's state
+		// changed in the database after it was fetched:
+		job.State = rivertype.JobStateRunning
+		_, err := JobCompleteTx[*riverpgxv5.Driver](ctx, bundle.tx, &Job[JobArgs]{JobRow: job})
+		require.EqualError(t, err, fmt.Sprintf(`job %d couldn't be completed because it's no longer running (state is "available")`, job.ID))
+
+		reloadedJob, err := bundle.exec.JobGetByID(ctx, &riverdriver.JobGetByIDParams{ID: job.ID})
+		require.NoError(t, err)
+		require.Equal(t, rivertype.JobStateAvailable, reloadedJob.State)
 	})
 
 	t.Run("PanicsIfCalledInTestWorkerWithoutInsertingJob", func(t *testing.T) {

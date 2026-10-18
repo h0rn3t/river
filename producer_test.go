@@ -322,6 +322,34 @@ func TestProducer_PollOnly(t *testing.T) {
 	})
 }
 
+func TestProducer_TriggerQueueControlEvent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// A producer that's not running never drains its queue control channel, so
+	// once the buffer is full, further events must be dropped instead of
+	// blocking callers holding the client's producers lock.
+	t.Run("DoesNotBlockWhenBufferFull", func(t *testing.T) {
+		t.Parallel()
+
+		producer := baseservice.Init(riversharedtest.BaseServiceArchetype(t), &producer{
+			queueControlCh: make(chan *controlEventPayload, 1),
+		})
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			producer.TriggerQueueControlEvent(ctx, &controlEventPayload{Action: controlActionPause, Queue: QueueDefault})
+			producer.TriggerQueueControlEvent(ctx, &controlEventPayload{Action: controlActionResume, Queue: QueueDefault})
+		}()
+		riversharedtest.WaitOrTimeout(t, done)
+
+		require.Len(t, producer.queueControlCh, 1)
+		require.Equal(t, controlActionPause, (<-producer.queueControlCh).Action)
+	})
+}
+
 func TestProducer_WithNotifier(t *testing.T) {
 	t.Parallel()
 

@@ -94,6 +94,11 @@ type Replacer struct {
 }
 
 var (
+	// Matches a named arg symbol like `@kind` as a whole identifier. A leading
+	// `@@` is also matched so that system variables like `@@ROWCOUNT` can be
+	// recognized and skipped.
+	namedArgRE = regexp.MustCompile(`@@?\w+`)
+
 	templateBeginEndRE = regexp.MustCompile(`/\* TEMPLATE_BEGIN: (.*?) \*/ .*? /\* TEMPLATE_END \*/`)
 	templateRE         = regexp.MustCompile(`/\* TEMPLATE: (.*?) \*/`)
 )
@@ -212,28 +217,39 @@ func (r *Replacer) RunSafely(ctx context.Context, argPlaceholder, sql string, ar
 	}
 
 	if len(container.NamedArgs) > 0 {
-		placeholderNum := len(args)
-
 		// For the benefit of the test suite's output being predictable, sort
-		// named args before processing them.
+		// named args before numbering them.
 		sortedNamedArgs := maputil.Keys(container.NamedArgs)
 		slices.Sort(sortedNamedArgs)
-		for _, arg := range sortedNamedArgs {
-			placeholderNum++
 
-			var (
-				symbol      = "@" + arg
-				symbolIndex = strings.Index(updatedSQL, symbol)
-				val         = container.NamedArgs[arg]
-			)
+		placeholders := make(map[string]string, len(sortedNamedArgs))
+		for i, arg := range sortedNamedArgs {
+			placeholders[arg] = argPlaceholder + strconv.Itoa(len(args)+i+1)
+		}
 
-			if symbolIndex == -1 {
-				return "", nil, fmt.Errorf("sqltemplate expected to find named arg %q, but it wasn't present", symbol)
+		// Replace all symbols in a single pass, matching whole identifiers so
+		// that an arg like `@kind` never clobbers a prefix of `@kind_name`, and
+		// so that inserted placeholders (e.g. SQL Server's `@p1`) are never
+		// rescanned. Unknown symbols and `@@` system variables are left alone.
+		symbolsFound := make(map[string]struct{}, len(sortedNamedArgs))
+		updatedSQL = namedArgRE.ReplaceAllStringFunc(updatedSQL, func(symbol string) string {
+			if strings.HasPrefix(symbol, "@@") {
+				return symbol
 			}
+			arg := symbol[1:]
+			placeholder, ok := placeholders[arg]
+			if !ok {
+				return symbol
+			}
+			symbolsFound[arg] = struct{}{}
+			return placeholder
+		})
 
-			// ReplaceAll because an input parameter may appear multiple times.
-			updatedSQL = strings.ReplaceAll(updatedSQL, symbol, argPlaceholder+strconv.Itoa(placeholderNum))
-			args = append(args, val)
+		for _, arg := range sortedNamedArgs {
+			if _, ok := symbolsFound[arg]; !ok {
+				return "", nil, fmt.Errorf("sqltemplate expected to find named arg %q, but it wasn't present", "@"+arg)
+			}
+			args = append(args, container.NamedArgs[arg])
 		}
 	}
 

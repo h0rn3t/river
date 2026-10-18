@@ -280,7 +280,18 @@ func requireNotInsertedErr[TDriver riverdriver.Driver[TTx], TTx any, TArgs river
 		return nil
 	}
 
-	if len(jobRows) > 0 && opts == nil {
+	// Schema only selects where to look rather than narrowing which jobs match,
+	// so opts setting no other property excludes every job of the kind, the
+	// same as nil opts. Otherwise compareJobToInsertOpts would compare nothing
+	// and consider each job a non-match.
+	optsHasAssertions := opts != nil &&
+		(opts.MaxAttempts != 0 ||
+			opts.Priority != 0 ||
+			opts.Queue != "" ||
+			opts.ScheduledAt != (time.Time{}) ||
+			opts.State != "" ||
+			len(opts.Tags) > 0)
+	if !optsHasAssertions {
 		failuref(t, "%d jobs found with kind, but expected to find none: %s", len(jobRows), expectedJob.Kind())
 		return nil
 	}
@@ -294,10 +305,8 @@ func requireNotInsertedErr[TDriver riverdriver.Driver[TTx], TTx any, TArgs river
 			return fmt.Errorf("error unmarshaling job args: %w", err)
 		}
 
-		if opts != nil {
-			if !compareJobToInsertOpts(t, jobRow, opts, -1, true) {
-				return nil
-			}
+		if !compareJobToInsertOpts(t, jobRow, opts, -1, true) {
+			return nil
 		}
 	}
 

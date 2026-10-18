@@ -550,6 +550,7 @@ func (c *Config) WithDefaults() *Config {
 		FetchPollInterval:           cmp.Or(c.FetchPollInterval, FetchPollIntervalDefault),
 		ID:                          valutil.ValOrDefaultFunc(c.ID, func() string { return defaultClientID(time.Now().UTC()) }),
 		Hooks:                       c.Hooks,
+		JobCleanerTimeout:           cmp.Or(c.JobCleanerTimeout, riversharedmaintenance.JobCleanerTimeoutDefault),
 		JobInsertMiddleware:         c.JobInsertMiddleware,
 		JobStuckHandler:             c.JobStuckHandler,
 		JobStuckThreshold:           cmp.Or(c.JobStuckThreshold, JobStuckThresholdDefault),
@@ -716,6 +717,15 @@ func (c QueueConfig) validate(queueName string, clientFetchCooldown time.Duratio
 		return errors.New("FetchPollInterval cannot be less than zero")
 	}
 
+	// Zero values fall back to the client's settings, which are validated
+	// against the same minimums.
+	if c.FetchCooldown > 0 && c.FetchCooldown < FetchCooldownMin {
+		return fmt.Errorf("FetchCooldown must be at least %s", FetchCooldownMin)
+	}
+	if c.FetchPollInterval > 0 && c.FetchPollInterval < FetchPollIntervalMin {
+		return fmt.Errorf("FetchPollInterval must be at least %s", FetchPollIntervalMin)
+	}
+
 	resolvedFetchCooldown := cmp.Or(c.FetchCooldown, clientFetchCooldown)
 	resolvedFetchPollInterval := cmp.Or(c.FetchPollInterval, clientFetchPollInterval)
 	if resolvedFetchPollInterval < resolvedFetchCooldown {
@@ -777,8 +787,10 @@ type Client[TTx any] struct {
 	testSignals           clientTestSignals
 
 	// workCancel cancels the context used for all work goroutines. Normal Stop
-	// does not cancel that context.
-	workCancel context.CancelCauseFunc
+	// does not cancel that context. Protected by workCancelMu because it's
+	// replaced on start and may be invoked concurrently by StopAndCancel.
+	workCancel   context.CancelCauseFunc
+	workCancelMu sync.Mutex
 }
 
 // Test-only signals.
@@ -1146,6 +1158,10 @@ func (c *Client[TTx]) Start(ctx context.Context) error {
 		)
 	}
 
+	// Deregisters cancellation of the work context on cancellation of the
+	// start context. Replaced during startup if registered.
+	stopWorkCancelOnStartCancel := func() bool { return false }
+
 	// Startup code. Wrapped in a closure so it doesn't have to remember to
 	// close the stopped channel if returning with an error.
 	if err := func() error {
@@ -1214,18 +1230,19 @@ func (c *Client[TTx]) Start(ctx context.Context) error {
 		}
 
 		// We use separate contexts for fetching and working to allow for a
-		// graceful stop. When SoftStopTimeout is configured, the work context
-		// is detached from the start context so that cancelling the start
-		// context initiates a soft stop (with timeout escalation) rather than
-		// an immediate hard stop. When SoftStopTimeout is not configured, the
-		// work context inherits from the start context to preserve the
-		// existing behavior where cancelling the start context is equivalent
-		// to StopAndCancel.
-		workParentCtx := ctx
-		if c.config.SoftStopTimeout > 0 {
-			workParentCtx = context.WithoutCancel(ctx)
+		// graceful stop. The work context is detached from the start context.
+		// When SoftStopTimeout is configured, cancelling the start context
+		// initiates a soft stop (with timeout escalation) rather than an
+		// immediate hard stop. When SoftStopTimeout is not configured,
+		// cancelling the start context is equivalent to StopAndCancel, so the
+		// work context is cancelled with the same cause. Inheriting the start
+		// context's cancellation instead would leave a cause that executors
+		// don't recognize as a client stop, and interrupted jobs would have
+		// an attempt counted against them.
+		workCtx, workCancel := context.WithCancelCause(context.WithoutCancel(ctx))
+		if c.config.SoftStopTimeout <= 0 {
+			stopWorkCancelOnStartCancel = context.AfterFunc(ctx, func() { workCancel(rivercommon.ErrStop) })
 		}
-		workCtx, workCancel := context.WithCancelCause(workParentCtx)
 
 		// Client available to executors and to various service hooks.
 		fetchCtx := withClient(fetchCtx, c)
@@ -1248,10 +1265,14 @@ func (c *Client[TTx]) Start(ctx context.Context) error {
 
 		c.queues.fetchCtx = fetchCtx
 		c.queues.workCtx = workCtx
+
+		c.workCancelMu.Lock()
 		c.workCancel = workCancel
+		c.workCancelMu.Unlock()
 
 		return nil
 	}(); err != nil {
+		stopWorkCancelOnStartCancel()
 		defer stopped()
 		if errors.Is(context.Cause(fetchCtx), startstop.ErrStop) {
 			return nil
@@ -1279,6 +1300,7 @@ func (c *Client[TTx]) Start(ctx context.Context) error {
 
 		started()
 		defer stopped()
+		defer stopWorkCancelOnStartCancel()
 
 		c.baseService.Logger.InfoContext(ctx, "River client started", slog.String("client_id", c.ID()))
 		defer c.baseService.Logger.InfoContext(ctx, "River client stopped", slog.String("client_id", c.ID()))
@@ -1296,7 +1318,7 @@ func (c *Client[TTx]) Start(ctx context.Context) error {
 		if c.config.SoftStopTimeout > 0 {
 			softStopTimer := time.AfterFunc(c.config.SoftStopTimeout, func() {
 				c.baseService.Logger.WarnContext(ctx, c.baseService.Name+": Soft stop timeout; cancelling remaining job contexts", slog.Duration("soft_stop_timeout", c.config.SoftStopTimeout))
-				c.workCancel(rivercommon.ErrStop)
+				c.cancelWork(rivercommon.ErrStop)
 			})
 			defer softStopTimer.Stop()
 		}
@@ -1306,7 +1328,7 @@ func (c *Client[TTx]) Start(ctx context.Context) error {
 		startstop.StopAllParallel(producersAsServices()...)
 		c.baseService.Logger.DebugContext(ctx, c.baseService.Name+": All producers stopped")
 
-		c.workCancel(rivercommon.ErrStop)
+		c.cancelWork(rivercommon.ErrStop)
 
 		// Stop all mainline services where stop order isn't important.
 		// This list of services contains the completer, which should always
@@ -1375,7 +1397,7 @@ func (c *Client[TTx]) Stop(ctx context.Context) error {
 // StopAndCancel.
 func (c *Client[TTx]) StopAndCancel(ctx context.Context) error {
 	c.baseService.Logger.InfoContext(ctx, c.baseService.Name+": Hard stop started; cancelling all work")
-	c.workCancel(rivercommon.ErrStop)
+	c.cancelWork(rivercommon.ErrStop)
 
 	shouldStop, stopped, finalizeStop := c.baseStartStop.StopInit()
 	if !shouldStop {
@@ -1390,6 +1412,15 @@ func (c *Client[TTx]) StopAndCancel(ctx context.Context) error {
 		finalizeStop(true)
 		return nil
 	}
+}
+
+// Cancels the context used for all work goroutines. Safe to invoke
+// concurrently with Start, which replaces the cancel function.
+func (c *Client[TTx]) cancelWork(cause error) {
+	c.workCancelMu.Lock()
+	defer c.workCancelMu.Unlock()
+
+	c.workCancel(cause)
 }
 
 // Stopped returns a channel that will be closed when the Client has stopped.
@@ -1533,7 +1564,7 @@ func (c *Client[TTx]) JobCancel(ctx context.Context, jobID int64) (*rivertype.Jo
 		return nil, err
 	}
 
-	c.notifyProducerWithoutListenerQueueControlEvent(job.Queue, &controlEventPayload{
+	c.notifyProducerWithoutListenerQueueControlEvent(ctx, job.Queue, &controlEventPayload{
 		Action: controlActionCancel,
 		JobID:  job.ID,
 		Queue:  job.Queue,
@@ -1721,18 +1752,43 @@ func (c *Client[TTx]) jobUpdate(ctx context.Context, exec riverdriver.Executor, 
 		params = &JobUpdateParams{}
 	}
 
-	outputFromWorkContext := func() json.RawMessage {
+	outputFromWorkContext, err := func() (json.RawMessage, error) {
+		// Not needed because params take precedence over context output.
+		if params.Output != nil {
+			return nil, nil
+		}
+
 		metadataUpdates, hasMetadataUpdates := jobexecutor.MetadataUpdatesFromWorkContext(ctx)
 		if !hasMetadataUpdates {
-			return nil
+			return nil, nil
 		}
 
-		if val, ok := metadataUpdates[rivertype.MetadataKeyOutput]; ok {
-			return val.(json.RawMessage) //nolint:forcetypeassert
+		val, ok := metadataUpdates[rivertype.MetadataKeyOutput]
+		if !ok {
+			return nil, nil
 		}
 
-		return nil
+		// Output recorded with RecordOutput is already marshaled and size
+		// checked. Output may also be set as any other value with MetadataSet,
+		// in which case it needs to be marshaled and checked here.
+		if outputBytes, ok := val.(json.RawMessage); ok {
+			return outputBytes, nil
+		}
+
+		outputBytes, err := json.Marshal(val)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := checkOutputSize(outputBytes); err != nil {
+			return nil, err
+		}
+
+		return outputBytes, nil
 	}()
+	if err != nil {
+		return nil, err
+	}
 
 	var (
 		metadataDoMerge      bool
@@ -1746,7 +1802,6 @@ func (c *Client[TTx]) jobUpdate(ctx context.Context, exec riverdriver.Executor, 
 		switch {
 		// comes first because params takes precedence over context output
 		case params.Output != nil:
-			var err error
 			outputBytes, err = json.Marshal(params.Output)
 			if err != nil {
 				return nil, err
@@ -1757,11 +1812,10 @@ func (c *Client[TTx]) jobUpdate(ctx context.Context, exec riverdriver.Executor, 
 			}
 
 		case outputFromWorkContext != nil:
-			// no size check necessary here because it's already been checked in RecordOutput
+			// no size check necessary here because it's already been checked above
 			outputBytes = outputFromWorkContext
 		}
 
-		var err error
 		metadataUpdatesBytes, err = json.Marshal(map[string]json.RawMessage{
 			rivertype.MetadataKeyOutput: outputBytes,
 		})
@@ -2157,6 +2211,16 @@ func (c *Client[TTx]) notifyProducerWithoutListenerJobFetch(_ context.Context, r
 		return
 	}
 
+	c.notifyProducerWithoutListenerJobFetchQueues(sliceutil.Map(res, func(insertRes *rivertype.JobInsertResult) string { return insertRes.Job.Queue }))
+}
+
+// Same as notifyProducerWithoutListenerJobFetch, but takes queue names instead
+// of insert results for use by insert variants that don't return job rows.
+func (c *Client[TTx]) notifyProducerWithoutListenerJobFetchQueues(queues []string) {
+	if c.driver.SupportsListener() {
+		return
+	}
+
 	c.producersMu.RLock()
 	defer c.producersMu.RUnlock()
 
@@ -2166,8 +2230,8 @@ func (c *Client[TTx]) notifyProducerWithoutListenerJobFetch(_ context.Context, r
 
 	// Special case for when we were handling exactly one job, which is a very
 	// common case. Acts as a minor optimization by avoiding the map allocation.
-	if len(res) == 1 {
-		if producer, ok := c.producersByQueueName[res[0].Job.Queue]; ok {
+	if len(queues) == 1 {
+		if producer, ok := c.producersByQueueName[queues[0]]; ok {
 			producer.TriggerJobFetch()
 		}
 
@@ -2176,13 +2240,13 @@ func (c *Client[TTx]) notifyProducerWithoutListenerJobFetch(_ context.Context, r
 
 	queuesTriggered := make(map[string]struct{})
 
-	for _, insertRes := range res {
-		if _, ok := queuesTriggered[insertRes.Job.Queue]; ok {
+	for _, queue := range queues {
+		if _, ok := queuesTriggered[queue]; ok {
 			continue
 		}
-		queuesTriggered[insertRes.Job.Queue] = struct{}{}
+		queuesTriggered[queue] = struct{}{}
 
-		if producer, ok := c.producersByQueueName[insertRes.Job.Queue]; ok {
+		if producer, ok := c.producersByQueueName[queue]; ok {
 			producer.TriggerJobFetch()
 		}
 	}
@@ -2211,17 +2275,21 @@ func (c *Client[TTx]) InsertManyFast(ctx context.Context, params []InsertManyPar
 		return 0, errNoDriverDBPool
 	}
 
+	var queues []string
+
 	// Wrap in a transaction in case we need to notify about inserts.
-	res, err := dbutil.WithTxV(ctx, c.driver.GetExecutor(), func(ctx context.Context, execTx riverdriver.ExecutorTx) ([]*rivertype.JobInsertResult, error) {
-		return c.insertManyFast(ctx, execTx, params)
+	count, err := dbutil.WithTxV(ctx, c.driver.GetExecutor(), func(ctx context.Context, execTx riverdriver.ExecutorTx) (int, error) {
+		count, insertedQueues, err := c.insertManyFast(ctx, execTx, params)
+		queues = insertedQueues
+		return count, err
 	})
 	if err != nil {
 		return 0, err
 	}
 
-	c.notifyProducerWithoutListenerJobFetch(ctx, res)
+	c.notifyProducerWithoutListenerJobFetchQueues(queues)
 
-	return len(res), nil
+	return count, nil
 }
 
 // InsertManyFastTx inserts many jobs at once using Postgres' `COPY FROM`
@@ -2248,20 +2316,24 @@ func (c *Client[TTx]) InsertManyFast(ctx context.Context, params []InsertManyPar
 // a unique constraint is violated, the operation will fail and no jobs will be
 // inserted.
 func (c *Client[TTx]) InsertManyFastTx(ctx context.Context, tx TTx, params []InsertManyParams) (int, error) {
-	res, err := c.insertManyFast(ctx, c.driver.UnwrapExecutor(tx), params)
+	count, _, err := c.insertManyFast(ctx, c.driver.UnwrapExecutor(tx), params)
 	if err != nil {
 		return 0, err
 	}
-	return len(res), nil
+	return count, nil
 }
 
-func (c *Client[TTx]) insertManyFast(ctx context.Context, execTx riverdriver.ExecutorTx, params []InsertManyParams) ([]*rivertype.JobInsertResult, error) {
+// Inserts jobs without returning rows. Returns the number of jobs inserted
+// along with the queue of each inserted job, the latter of which is used to
+// notify producers on drivers without a listener because no job rows are
+// available to do so.
+func (c *Client[TTx]) insertManyFast(ctx context.Context, execTx riverdriver.ExecutorTx, params []InsertManyParams) (int, []string, error) {
 	insertParams, err := c.insertManyParams(params)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 
-	return c.insertManyShared(ctx, execTx, insertParams, func(ctx context.Context, insertParams []*riverdriver.JobInsertFastParams) ([]*rivertype.JobInsertResult, error) {
+	res, err := c.insertManyShared(ctx, execTx, insertParams, func(ctx context.Context, insertParams []*riverdriver.JobInsertFastParams) ([]*rivertype.JobInsertResult, error) {
 		count, err := execTx.JobInsertFastManyNoReturning(ctx, &riverdriver.JobInsertFastManyParams{
 			Jobs:   insertParams,
 			Schema: c.config.Schema,
@@ -2271,6 +2343,13 @@ func (c *Client[TTx]) insertManyFast(ctx context.Context, execTx riverdriver.Exe
 		}
 		return make([]*rivertype.JobInsertResult, count), nil
 	})
+	if err != nil {
+		return 0, nil, err
+	}
+
+	// Read queues after insertion so any changes made by hooks or middleware
+	// are reflected.
+	return len(res), sliceutil.Map(insertParams, func(params *rivertype.JobInsertParams) string { return params.Queue }), nil
 }
 
 // Notify the given queues that new jobs are available. The queues list will be
@@ -2822,7 +2901,7 @@ func (c *Client[TTx]) QueuePause(ctx context.Context, name string, opts *QueuePa
 		return err
 	}
 
-	c.notifyProducerWithoutListenerQueueControlEvent(name, controlEvent)
+	c.notifyProducerWithoutListenerQueueControlEvent(ctx, name, controlEvent)
 
 	return nil
 }
@@ -2892,7 +2971,7 @@ func (c *Client[TTx]) QueueResume(ctx context.Context, name string, opts *QueueP
 		return err
 	}
 
-	c.notifyProducerWithoutListenerQueueControlEvent(name, controlEvent)
+	c.notifyProducerWithoutListenerQueueControlEvent(ctx, name, controlEvent)
 
 	return nil
 }
@@ -2952,7 +3031,7 @@ func (c *Client[TTx]) QueueUpdate(ctx context.Context, name string, params *Queu
 		return nil, err
 	}
 
-	c.notifyProducerWithoutListenerQueueControlEvent(name, controlEvent)
+	c.notifyProducerWithoutListenerQueueControlEvent(ctx, name, controlEvent)
 
 	return queue, nil
 }
@@ -2974,7 +3053,7 @@ func (c *Client[TTx]) QueueUpdateTx(ctx context.Context, tx TTx, name string, pa
 // Should only ever be invoked *outside* a transaction. If invoked within a
 // transaction, the producer wouldn't yet be able to access the state that
 // triggered the notification because it's not committed yet.
-func (c *Client[TTx]) notifyProducerWithoutListenerQueueControlEvent(queue string, controlEvent *controlEventPayload) {
+func (c *Client[TTx]) notifyProducerWithoutListenerQueueControlEvent(ctx context.Context, queue string, controlEvent *controlEventPayload) {
 	if c.driver.SupportsListener() {
 		return
 	}
@@ -2987,7 +3066,7 @@ func (c *Client[TTx]) notifyProducerWithoutListenerQueueControlEvent(queue strin
 	}
 
 	if producer, ok := c.producersByQueueName[queue]; ok {
-		producer.TriggerQueueControlEvent(controlEvent)
+		producer.TriggerQueueControlEvent(ctx, controlEvent)
 	}
 }
 
@@ -3078,6 +3157,12 @@ func (b *QueueBundle) Add(queueName string, queueConfig QueueConfig) error {
 	// Start the queue if the client is already started.
 	if b.fetchCtx != nil && b.fetchCtx.Err() == nil {
 		if err := producer.StartWorkContext(b.fetchCtx, b.workCtx); err != nil {
+			// Unregister the producer so that adding the queue can be retried
+			// instead of failing with QueueAlreadyAddedError. A producer that
+			// failed to start is already stopped, so removing it doesn't wait.
+			if removeErr := b.producerRemove(b.fetchCtx, queueName); removeErr != nil {
+				return errors.Join(err, removeErr)
+			}
 			return err
 		}
 	}

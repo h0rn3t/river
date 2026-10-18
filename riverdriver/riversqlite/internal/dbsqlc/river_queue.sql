@@ -52,7 +52,7 @@ FROM /* TEMPLATE: schema */river_queue
 WHERE
     name > cast(@after AS text)
     AND (cast(@match AS text) = '' OR LOWER(name) LIKE '%' || LOWER(cast(@match AS text)) || '%')
-    AND name NOT IN (sqlc.slice('exclude'))
+    AND name NOT IN (SELECT value FROM json_each(cast(@exclude AS blob)))
 ORDER BY name ASC
 LIMIT @max;
 

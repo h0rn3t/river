@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -637,8 +638,11 @@ func TestNotifier_Start(t *testing.T) {
 		t.Helper()
 
 		listener := &ListenerMock{
-			closeFunc:   func(ctx context.Context) error { return nil },
-			connectFunc: func(ctx context.Context) error { return ctx.Err() },
+			closeFunc:    func(ctx context.Context) error { return nil },
+			connectFunc:  func(ctx context.Context) error { return ctx.Err() },
+			listenFunc:   func(ctx context.Context, topic string) error { return nil },
+			pingFunc:     func(ctx context.Context) error { return nil },
+			unlistenFunc: func(ctx context.Context, topic string) error { return nil },
 			waitForNotificationFunc: func(ctx context.Context) (*riverdriver.Notification, error) {
 				<-ctx.Done()
 				return nil, fmt.Errorf("notification wait: %w", ctx.Err())
@@ -718,6 +722,45 @@ func TestNotifier_Start(t *testing.T) {
 		})
 	})
 
+	t.Run("InterruptTimeoutDoesNotBlockMainLoop", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			bundle := setup(t)
+
+			// The first listen outlasts the interrupt's result timeout.
+			var numListens atomic.Int64
+			bundle.listener.listenFunc = func(ctx context.Context, topic string) error {
+				if numListens.Add(1) == 1 {
+					<-ctx.Done()
+					return ctx.Err()
+				}
+				return nil
+			}
+
+			ctx := context.Background()
+			require.NoError(t, bundle.notifier.Start(ctx))
+			bundle.notifier.testSignals.ListeningBegin.WaitOrTimeout()
+			synctest.Wait()
+
+			_, err := bundle.notifier.Listen(ctx, "test_topic1", func(topic NotificationTopic, payload string) {})
+			require.EqualError(t, err, "timed out waiting for interrupt operation")
+
+			// Let the abandoned interrupt operation finish. The main loop must
+			// not block delivering its result, and returns to waiting.
+			time.Sleep(listenerTimeout)
+			synctest.Wait()
+			bundle.notifier.withLock(func() { require.True(t, bundle.notifier.isWaiting) })
+
+			sub, err := bundle.notifier.Listen(ctx, "test_topic2", func(topic NotificationTopic, payload string) {})
+			require.NoError(t, err)
+			t.Cleanup(func() { sub.Unlisten(ctx) })
+
+			bundle.notifier.Stop()
+			require.Equal(t, int64(2), numListens.Load())
+		})
+	})
+
 	t.Run("ListenerDeadlineExceeded", func(t *testing.T) {
 		t.Parallel()
 
@@ -745,6 +788,87 @@ func TestNotifier_Start(t *testing.T) {
 			bundle.notifier.testSignals.BackoffError.RequireEmpty()
 		})
 	})
+
+	t.Run("PingTimeout", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			bundle := setup(t)
+
+			// Simulates a half-open connection where a ping never returns.
+			bundle.listener.pingFunc = func(ctx context.Context) error {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+
+			require.NoError(t, bundle.notifier.Start(context.Background()))
+			bundle.notifier.testSignals.ListeningBegin.WaitOrTimeout()
+
+			// Ping interval followed by the ping timeout.
+			time.Sleep(5*time.Second + listenerTimeout)
+			require.ErrorIs(t, bundle.notifier.testSignals.BackoffError.WaitOrTimeout(), context.DeadlineExceeded)
+		})
+	})
+
+	t.Run("ReconnectBackoffResetsAfterHealthySession", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			bundle := setup(t)
+
+			// Waits run sequentially and are only read after Stop, so no
+			// synchronization is needed.
+			var waitTimes []time.Time
+			bundle.listener.waitForNotificationFunc = func(ctx context.Context) (*riverdriver.Notification, error) {
+				waitTimes = append(waitTimes, time.Now())
+
+				switch len(waitTimes) {
+				case 1, 2, 3, 5:
+					return nil, errors.New("error during wait")
+				default:
+					// Healthy until the next ping interrupts the wait.
+					<-ctx.Done()
+					return nil, ctx.Err()
+				}
+			}
+
+			require.NoError(t, bundle.notifier.Start(context.Background()))
+
+			// Three failed sessions back off for 0.5s, 1s, and 2s. The fourth
+			// session is healthy after a successful ping, so its failure backs
+			// off for 0.5s again rather than 4s.
+			time.Sleep(20 * time.Second)
+			bundle.notifier.Stop()
+
+			require.GreaterOrEqual(t, len(waitTimes), 6)
+			require.Greater(t, waitTimes[2].Sub(waitTimes[1]), time.Second/2)
+			require.Less(t, waitTimes[5].Sub(waitTimes[4]), time.Second)
+		})
+	})
+
+	t.Run("UnlistenErrorRemovesSubscription", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			bundle := setup(t)
+
+			bundle.listener.unlistenFunc = func(ctx context.Context, topic string) error {
+				return errors.New("unlisten error")
+			}
+
+			ctx := context.Background()
+			require.NoError(t, bundle.notifier.Start(ctx))
+			bundle.notifier.testSignals.ListeningBegin.WaitOrTimeout()
+			synctest.Wait()
+
+			sub, err := bundle.notifier.Listen(ctx, "test_topic1", func(topic NotificationTopic, payload string) {})
+			require.NoError(t, err)
+
+			sub.Unlisten(ctx)
+
+			bundle.notifier.withLock(func() { require.Empty(t, bundle.notifier.subscriptions) })
+		})
+	})
 }
 
 type ListenerMock struct {
@@ -754,6 +878,7 @@ type ListenerMock struct {
 	connectFunc             func(ctx context.Context) error
 	listenFunc              func(ctx context.Context, topic string) error
 	pingFunc                func(ctx context.Context) error
+	unlistenFunc            func(ctx context.Context, topic string) error
 	waitForNotificationFunc func(ctx context.Context) (*riverdriver.Notification, error)
 }
 
@@ -765,6 +890,7 @@ func NewListenerMock(listener riverdriver.Listener) *ListenerMock {
 		connectFunc:             listener.Connect,
 		listenFunc:              listener.Listen,
 		pingFunc:                listener.Ping,
+		unlistenFunc:            listener.Unlisten,
 		waitForNotificationFunc: listener.WaitForNotification,
 	}
 }
@@ -783,6 +909,10 @@ func (l *ListenerMock) Listen(ctx context.Context, topic string) error {
 
 func (l *ListenerMock) Ping(ctx context.Context) error {
 	return l.pingFunc(ctx)
+}
+
+func (l *ListenerMock) Unlisten(ctx context.Context, topic string) error {
+	return l.unlistenFunc(ctx, topic)
 }
 
 func (l *ListenerMock) WaitForNotification(ctx context.Context) (*riverdriver.Notification, error) {

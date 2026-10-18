@@ -70,6 +70,16 @@ func (m *leaderReelectExecutorMock) LeaderAttemptReelect(ctx context.Context, pa
 	return m.LeaderAttemptReelectFunc(ctx, params)
 }
 
+type leaderResignExecutorMock struct {
+	riverdriver.Executor
+
+	LeaderResignFunc func(ctx context.Context, params *riverdriver.LeaderResignParams) (bool, error)
+}
+
+func (m *leaderResignExecutorMock) LeaderResign(ctx context.Context, params *riverdriver.LeaderResignParams) (bool, error) {
+	return m.LeaderResignFunc(ctx, params)
+}
+
 type localNowTimeGeneratorStub struct {
 	now time.Time
 }
@@ -85,6 +95,19 @@ func (g *localNowTimeGeneratorStub) NowOrNil() *time.Time {
 func (g *localNowTimeGeneratorStub) StubNow(now time.Time) time.Time {
 	g.now = now
 	return now
+}
+
+type notifierListenerMock struct {
+	riverdriver.Listener
+
+	listenErr error
+}
+
+func (l *notifierListenerMock) Close(ctx context.Context) error   { return nil }
+func (l *notifierListenerMock) Connect(ctx context.Context) error { return nil }
+
+func (l *notifierListenerMock) Listen(ctx context.Context, topic string) error {
+	return l.listenErr
 }
 
 func TestElector_PollOnly(t *testing.T) {
@@ -321,6 +344,44 @@ func TestElectorRunLeaderState(t *testing.T) {
 		return elector, exec
 	}
 
+	t.Run("PublishesLossOfLeadershipBeforeResigning", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			elector              *Elector
+			isLeaderDuringResign bool
+		)
+		elector = NewElector(
+			riversharedtest.BaseServiceArchetype(t),
+			&leaderResignExecutorMock{
+				LeaderResignFunc: func(ctx context.Context, params *riverdriver.LeaderResignParams) (bool, error) {
+					elector.mu.Lock()
+					defer elector.mu.Unlock()
+
+					isLeaderDuringResign = elector.isLeader
+					return true, nil
+				},
+			},
+			nil,
+			&Config{ClientID: "test_client_id"},
+		)
+		elector.testSignals.Init(t)
+		elector.wakeupChan = make(chan struct{}, 1)
+
+		elector.publishLeadershipState(true)
+		elector.RequestResign(ctx, elector.term)
+
+		now := time.Now()
+		require.NoError(t, elector.runLeaderState(ctx, leadershipTerm{
+			clientID:     elector.config.ClientID,
+			electedAt:    now,
+			trustedUntil: now.Add(time.Hour),
+		}))
+
+		elector.testSignals.ResignedLeadership.WaitOrTimeout()
+		require.False(t, isLeaderDuringResign, "leadership loss should be published before resigning")
+	})
+
 	t.Run("ResignsCurrentTermAfterReelectErrorsExhaustTrust", func(t *testing.T) {
 		t.Parallel()
 
@@ -454,6 +515,31 @@ func TestElectorRunLeaderState(t *testing.T) {
 		require.NoError(t, err)
 
 		elector.testSignals.LostLeadership.WaitOrTimeout()
+	})
+}
+
+func TestElectorStart(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("ReturnsListenError", func(t *testing.T) {
+		t.Parallel()
+
+		archetype := riversharedtest.BaseServiceArchetype(t)
+
+		// An error ending in "conn closed" was previously swallowed, leaving an
+		// elector that reported a successful start but never ran.
+		elector := NewElector(
+			archetype,
+			nil,
+			notifier.New(archetype, &notifierListenerMock{listenErr: errors.New("conn closed")}),
+			&Config{ClientID: "test_client_id"},
+		)
+		t.Cleanup(elector.Stop)
+
+		require.EqualError(t, elector.Start(ctx),
+			`error listening for leadership notifications: error listening on topic "river_leadership": conn closed`)
 	})
 }
 

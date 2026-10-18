@@ -307,7 +307,10 @@ INSERT INTO /* TEMPLATE: schema */river_job(
     unique_key,
     unique_states
 ) SELECT
-    coalesce(nullif(id, 0), nextval('/* TEMPLATE: schema */river_job_id_seq'::regclass)),
+    -- The sequence name is a parameter rather than a templated string literal
+    -- so that a schema name containing a quote can't break out of it. It's
+    -- resolved once in a subquery rather than per row.
+    coalesce(nullif(id, 0), nextval((SELECT sqlc.arg(id_sequence)::text::regclass))),
     args,
     coalesce(nullif(created_at, '0001-01-01 00:00:00 +0000'), now()) AS created_at,
     kind,
@@ -492,6 +495,17 @@ LIMIT @max::int;
 
 -- Run by the rescuer to queue for retry or discard depending on job state.
 -- name: JobRescueMany :exec
+WITH job_to_update AS (
+    -- Lock rows in a consistent order before updating them so that
+    -- concurrent batches with overlapping IDs can't deadlock each other.
+    SELECT id
+    FROM /* TEMPLATE: schema */river_job
+    WHERE id = any(@id::bigint[])
+        AND state = 'running'
+        AND attempted_at < @stuck_horizon::timestamptz
+    ORDER BY id
+    FOR UPDATE
+)
 UPDATE /* TEMPLATE: schema */river_job
 SET
     errors = array_append(errors, updated_job.error),
@@ -517,6 +531,7 @@ FROM (
         unnest(@state::text[])::/* TEMPLATE: schema */river_job_state AS state
 ) AS updated_job
 WHERE river_job.id = updated_job.id
+    AND river_job.id IN (SELECT id FROM job_to_update)
     AND river_job.state = 'running'
     AND river_job.attempted_at < @stuck_horizon::timestamptz;
 
@@ -655,6 +670,16 @@ WITH job_input AS (
         -- type, we cast the array to text[] and then to river_job_state.
         unnest(@state::text[])::/* TEMPLATE: schema */river_job_state AS state
 ),
+job_to_update AS (
+    -- Lock rows in a consistent order before updating them so that
+    -- concurrent batches with overlapping IDs can't deadlock each other.
+    SELECT river_job.id
+    FROM /* TEMPLATE: schema */river_job
+        JOIN job_input ON river_job.id = job_input.id
+    WHERE river_job.state = 'running' OR job_input.metadata_do_merge
+    ORDER BY river_job.id
+    FOR UPDATE OF river_job
+),
 updated AS (
     UPDATE /* TEMPLATE: schema */river_job
     SET
@@ -702,6 +727,7 @@ updated AS (
         END
     FROM job_input
     WHERE river_job.id = job_input.id
+      AND river_job.id IN (SELECT id FROM job_to_update)
       AND (river_job.state = 'running' OR job_input.metadata_do_merge)
     RETURNING river_job.*
 )

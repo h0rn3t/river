@@ -41,7 +41,7 @@ func Exercise[TTx any](ctx context.Context, t *testing.T,
 	exerciseJobInsert(ctx, t, driverWithSchema, executorWithTx)
 	exerciseJobRead(ctx, t, executorWithTx)
 	exerciseJobUpdate(ctx, t, executorWithTx)
-	exerciseJobDelete(ctx, t, executorWithTx)
+	exerciseJobDelete(ctx, t, driverWithSchema, executorWithTx)
 	exerciseLeader(ctx, t, executorWithTx)
 	exerciseQueue(ctx, t, executorWithTx)
 }

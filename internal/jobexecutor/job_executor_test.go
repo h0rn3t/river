@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/h0rn3t/river/internal/jobcompleter"
+	"github.com/h0rn3t/river/internal/jobstats"
 	"github.com/h0rn3t/river/internal/pluginlookup"
 	"github.com/h0rn3t/river/internal/rivercommon"
 	"github.com/h0rn3t/river/internal/riverinternaltest"
@@ -1477,6 +1478,110 @@ func TestJobExecutor_Execute(t *testing.T) {
 
 		require.True(t, workEnd1Called)
 		require.True(t, workEnd2Called)
+	})
+}
+
+// recordingCompleter is a completer that records state updates without needing
+// a database. Methods other than JobSetStateIfRunning panic if called.
+type recordingCompleter struct {
+	jobcompleter.JobCompleter
+
+	params []*riverdriver.JobSetStateIfRunningParams
+}
+
+func (c *recordingCompleter) JobSetStateIfRunning(ctx context.Context, stats *jobstats.JobStatistics, params *riverdriver.JobSetStateIfRunningParams) error {
+	c.params = append(c.params, params)
+	return nil
+}
+
+func TestJobExecutor_ReportResults(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	type testBundle struct {
+		completer *recordingCompleter
+	}
+
+	setup := func(t *testing.T) (*JobExecutor, *testBundle) {
+		t.Helper()
+
+		bundle := &testBundle{
+			completer: &recordingCompleter{},
+		}
+
+		executor := baseservice.Init(riversharedtest.BaseServiceArchetype(t), &JobExecutor{
+			ClientRetryPolicy:        &retrypolicytest.RetryPolicyNoJitter{},
+			Completer:                bundle.completer,
+			DefaultClientRetryPolicy: &retrypolicytest.RetryPolicyNoJitter{},
+			JobRow:                   &rivertype.JobRow{ID: 1, Attempt: 1, AttemptedAt: new(time.Now()), MaxAttempts: 25, Metadata: []byte(`{}`)},
+			SchedulerInterval:        riverinternaltest.SchedulerShortInterval,
+		})
+		executor.stats = &jobstats.JobStatistics{}
+
+		return executor, bundle
+	}
+
+	t.Run("MetadataUpdatesMarshalErrorFailsAttempt", func(t *testing.T) {
+		t.Parallel()
+
+		executor, bundle := setup(t)
+
+		executor.reportResults(ctx, &jobExecutorResult{
+			MetadataUpdates: map[string]any{"unmarshalable": make(chan int)},
+		})
+
+		require.Len(t, bundle.completer.params, 1)
+		params := bundle.completer.params[0]
+		require.Equal(t, executor.JobRow.ID, params.ID)
+		require.Equal(t, rivertype.JobStateRetryable, params.State)
+		require.Nil(t, params.MetadataUpdates)
+		require.Contains(t, string(params.ErrData), "error marshaling metadata updates")
+	})
+
+	t.Run("MetadataUpdatesMarshalErrorOnSnoozeFailsAttempt", func(t *testing.T) {
+		t.Parallel()
+
+		executor, bundle := setup(t)
+
+		executor.reportResults(ctx, &jobExecutorResult{
+			Err:             &rivertype.JobSnoozeError{Duration: time.Hour},
+			MetadataUpdates: map[string]any{"unmarshalable": make(chan int)},
+		})
+
+		require.Len(t, bundle.completer.params, 1)
+		params := bundle.completer.params[0]
+		require.Equal(t, rivertype.JobStateRetryable, params.State)
+		require.Contains(t, string(params.ErrData), "error marshaling metadata updates")
+	})
+
+	t.Run("SnoozeCountNotSharedAcrossMultipleJobs", func(t *testing.T) {
+		t.Parallel()
+
+		executor, bundle := setup(t)
+
+		otherJob := &rivertype.JobRow{ID: 2, Attempt: 1, AttemptedAt: new(time.Now()), MaxAttempts: 25, Metadata: []byte(`{}`)}
+		executor.reportResults(ctx, &jobExecutorResult{
+			Err: &errorBundle{
+				errorsByID: map[int64]error{
+					executor.JobRow.ID: &rivertype.JobSnoozeError{Duration: time.Hour},
+				},
+				jobs: []*rivertype.JobRow{executor.JobRow, otherJob},
+			},
+			MetadataUpdates: map[string]any{"foo": "bar"},
+		})
+
+		require.Len(t, bundle.completer.params, 2)
+
+		snoozedParams := bundle.completer.params[0]
+		require.Equal(t, executor.JobRow.ID, snoozedParams.ID)
+		require.Equal(t, rivertype.JobStateScheduled, snoozedParams.State)
+		require.JSONEq(t, `{"foo":"bar","snoozes":1}`, string(snoozedParams.MetadataUpdates))
+
+		completedParams := bundle.completer.params[1]
+		require.Equal(t, otherJob.ID, completedParams.ID)
+		require.Equal(t, rivertype.JobStateCompleted, completedParams.State)
+		require.JSONEq(t, `{"foo":"bar"}`, string(completedParams.MetadataUpdates))
 	})
 }
 

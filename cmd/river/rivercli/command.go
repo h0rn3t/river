@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -74,7 +75,8 @@ func RunCommand[TOpts CommandOpts](ctx context.Context, bundle *RunCommandBundle
 			var ok bool
 			protocol, urlWithoutProtocol, ok = strings.Cut(*databaseURL, "://")
 			if !ok {
-				return false, fmt.Errorf("expected database URL (`%s`) to be formatted like `postgres://...`", *bundle.DatabaseURL)
+				// The URL isn't included because it may contain credentials.
+				return false, errors.New("expected database URL to be formatted like `postgres://...`")
 			}
 		}
 
@@ -124,7 +126,9 @@ func RunCommand[TOpts CommandOpts](ctx context.Context, bundle *RunCommandBundle
 				}
 
 			default:
-				return false, fmt.Errorf("unsupported database URL (`%s`); try one with a `postgres://`, `postgresql://`, `sqlite://`, or `sqlserver://` scheme/prefix", *bundle.DatabaseURL)
+				// Only the scheme is included because the rest of the URL may
+				// contain credentials.
+				return false, fmt.Errorf("unsupported database URL scheme (`%s://`); try one with a `postgres://`, `postgresql://`, `sqlite://`, or `sqlserver://` scheme/prefix", protocol)
 			}
 		}
 

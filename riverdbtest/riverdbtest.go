@@ -281,7 +281,15 @@ func TestSchema[TTx any](ctx context.Context, tb testutil.TestingTB, driver rive
 	}
 
 	// Adds a hook on `tb.Cleanup` that checks the test schema in after use.
-	addCleanupHook := func(schema string) {
+	//
+	// The schema is only checked in if the returned function was invoked to
+	// mark it ready, which callers do once the schema has been successfully
+	// created, migrated, or cleaned. A failure partway through (which ends the
+	// test via FailNow) leaves the schema out of the pool so that it isn't
+	// handed to another test in a broken state.
+	addCleanupHook := func(schema string) func() {
+		var ready bool
+
 		// Use an interface here so that callers can pass in `testutil.PanicTB`,
 		// which doesn't have a Cleanup implementation, but also won't care about
 		// having to check schemas back in (it's used in example tests).
@@ -292,6 +300,11 @@ func TestSchema[TTx any](ctx context.Context, tb testutil.TestingTB, driver rive
 		if withCleanup, ok := tb.(testingTBWithCleanup); ok {
 			if !opts.DisableReuse {
 				withCleanup.Cleanup(func() {
+					if !ready {
+						tb.Logf("%s schema %q failed to be prepared; not checked in for reuse", driver.DatabaseName(), schema)
+						return
+					}
+
 					idleSchemasMu.Lock()
 					defer idleSchemasMu.Unlock()
 
@@ -306,6 +319,8 @@ func TestSchema[TTx any](ctx context.Context, tb testutil.TestingTB, driver rive
 		} else {
 			tb.Logf("tb does not implement Cleanup; schema not checked in for reuse")
 		}
+
+		return func() { ready = true }
 	}
 
 	// This is used for SQLite to provision a new pool for our test schema
@@ -352,7 +367,7 @@ func TestSchema[TTx any](ctx context.Context, tb testutil.TestingTB, driver rive
 			// pool, and in case it does, we want a cleanup in it that closes the pool
 			// to run before this cleanup hook that checks the test schema back in.
 			// Cleanup is FILO, so clean up must appear first to run last.
-			addCleanupHook(schema)
+			markReady := addCleanupHook(schema)
 
 			var (
 				start            = time.Now()
@@ -362,6 +377,8 @@ func TestSchema[TTx any](ctx context.Context, tb testutil.TestingTB, driver rive
 			if len(truncateTables) > 0 {
 				require.NoError(tb, driver.GetExecutor().TableTruncate(ctx, &riverdriver.TableTruncateParams{Schema: userFacingSchema, Table: truncateTables}))
 			}
+
+			markReady()
 
 			tb.Logf("Reusing idle %s schema %q [user facing: %q] after cleaning in %s [%d generated] [%d reused]",
 				driver.DatabaseName(), schema, userFacingSchema, time.Since(start), stats.numGenerated.Load(), stats.numReused.Add(1))
@@ -377,7 +394,7 @@ func TestSchema[TTx any](ctx context.Context, tb testutil.TestingTB, driver rive
 	// pool, and in case it does, we want a cleanup in it that closes the pool
 	// to run before this cleanup hook that checks the test schema back in.
 	// Cleanup is FILO, so clean up must appear first to run last.
-	addCleanupHook(schema)
+	markReady := addCleanupHook(schema)
 
 	// same as schema for Postgres, but empty string for SQLite where we can't reference the current schema by its qualified name
 	userFacingSchema := maybeProcurePool(schema)
@@ -418,6 +435,8 @@ func TestSchema[TTx any](ctx context.Context, tb testutil.TestingTB, driver rive
 			stats.numReused.Load(),
 		)
 	}
+
+	markReady()
 
 	return userFacingSchema
 }

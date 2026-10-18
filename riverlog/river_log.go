@@ -85,7 +85,7 @@ type MiddlewareConfig struct {
 	// 255 divided by maximum number of attempts may cause serious operational
 	// problems.
 	//
-	// Defaults to 2 MB (which is per job attempt).
+	// Defaults to 2 MB (which is per job attempt). Must not be negative.
 	MaxSizeBytes int
 
 	// MaxTotalBytes is the maximum total size of all persisted river logs for a
@@ -95,12 +95,14 @@ type MiddlewareConfig struct {
 	// The latest entry is always retained, even if doing so means the resulting
 	// payload exceeds MaxTotalBytes.
 	//
-	// Defaults to 8 MB. Values larger than 64 MB are clamped to 64 MB.
+	// Defaults to 8 MB. Values larger than 64 MB are clamped to 64 MB. Must not
+	// be negative.
 	MaxTotalBytes int
 }
 
 // NewMiddleware initializes a new Middleware with the given slog handler
-// initialization function and configuration.
+// initialization function and configuration. It panics if the configuration
+// contains a negative size.
 //
 // newHandler is a function which is invoked on every Work execution to generate
 // a new slog.Handler for a work-specific slog.Logger. It should take an
@@ -126,7 +128,8 @@ func NewMiddleware(newSlogHandler func(w io.Writer) slog.Handler, config *Middle
 }
 
 // NewMiddlewareCustomContext initializes a new Middleware with the given arbitrary
-// context initialization function and configuration.
+// context initialization function and configuration. It panics if the
+// configuration contains a negative size.
 //
 // newContext is a function which is invoked on every Work execution to generate
 // a new context for the worker. It's generally used to initialize a logger with
@@ -153,6 +156,13 @@ func NewMiddlewareCustomContext(newCustomContext func(ctx context.Context, w io.
 func defaultConfig(config *MiddlewareConfig) *MiddlewareConfig {
 	if config == nil {
 		config = &MiddlewareConfig{}
+	}
+
+	if config.MaxSizeBytes < 0 {
+		panic("riverlog: MiddlewareConfig.MaxSizeBytes must be greater or equal to zero")
+	}
+	if config.MaxTotalBytes < 0 {
+		panic("riverlog: MiddlewareConfig.MaxTotalBytes must be greater or equal to zero")
 	}
 
 	config.MaxSizeBytes = cmp.Or(config.MaxSizeBytes, maxSizeBytes)
@@ -188,6 +198,13 @@ func (m *Middleware) Work(ctx context.Context, job *rivertype.JobRow, doInner fu
 		return errors.New("expected to find metadata updates in context, but didn't")
 	}
 
+	// Middleware installed on a worker rather than the client isn't initialized
+	// with the client's archetype, so its logger and name may be unset.
+	var (
+		logger = cmp.Or(m.Logger, slog.Default())
+		name   = cmp.Or(m.Name, "riverlog.Middleware")
+	)
+
 	// This all runs invariant of whether the job panics or returns an error.
 	defer func() {
 		logBytes := logBuf.Bytes()
@@ -200,7 +217,7 @@ func (m *Middleware) Work(ctx context.Context, job *rivertype.JobRow, doInner fu
 		// Postgres JSONB is limited to 255MB, but it would be a bad idea to get
 		// anywhere close to that limit here.
 		if len(logBytes) > m.config.MaxSizeBytes {
-			m.Logger.WarnContext(ctx, m.Name+": Logs size exceeded maximum; truncating",
+			logger.WarnContext(ctx, name+": Logs size exceeded maximum; truncating",
 				slog.Int("logs_size", len(logBytes)),
 				slog.Int("max_size", m.config.MaxSizeBytes),
 			)
@@ -212,7 +229,7 @@ func (m *Middleware) Work(ctx context.Context, job *rivertype.JobRow, doInner fu
 			Log:     string(logBytes),
 		})
 		if err != nil {
-			m.Logger.ErrorContext(ctx, m.Name+": Error marshaling log data",
+			logger.ErrorContext(ctx, name+": Error marshaling log data",
 				slog.Any("error", err),
 			)
 			return
@@ -220,14 +237,14 @@ func (m *Middleware) Work(ctx context.Context, job *rivertype.JobRow, doInner fu
 
 		allLogDataBytes, numDroppedEntries, err := appendLogDataWithCap(job.Metadata, newLogEntryBytes, m.config.MaxTotalBytes)
 		if err != nil {
-			m.Logger.ErrorContext(ctx, m.Name+": Error marshaling log data",
+			logger.ErrorContext(ctx, name+": Error marshaling log data",
 				slog.Any("error", err),
 			)
 			return
 		}
 
 		if numDroppedEntries > 0 {
-			m.Logger.WarnContext(ctx, m.Name+": Logs size exceeded total maximum; dropping oldest entries",
+			logger.WarnContext(ctx, name+": Logs size exceeded total maximum; dropping oldest entries",
 				slog.Int("max_total_size", m.config.MaxTotalBytes),
 				slog.Int("num_entries_dropped", numDroppedEntries),
 			)

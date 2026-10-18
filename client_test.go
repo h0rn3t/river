@@ -3071,6 +3071,58 @@ func Test_Client_StopAndCancel(t *testing.T) {
 			t.Fatal("expected job to have exited")
 		}
 	})
+
+	// Cancelling the start context without SoftStopTimeout is equivalent to
+	// StopAndCancel, so an interrupted job shouldn't have an attempt counted
+	// against it.
+	t.Run("StartContextCancelled", func(t *testing.T) {
+		t.Parallel()
+
+		config := newTestConfig(t, "")
+
+		jobStartedChan := make(chan struct{})
+		AddWorker(config.Workers, WorkFunc(func(ctx context.Context, job *Job[JobArgs]) error {
+			close(jobStartedChan)
+			<-ctx.Done()
+			return ctx.Err()
+		}))
+
+		var (
+			dbPool = riversharedtest.DBPool(ctx, t)
+			driver = riverpgxv5.New(dbPool)
+			schema = riverdbtest.TestSchema(ctx, t, driver, nil)
+		)
+		config.Schema = schema
+
+		client, err := NewClient(driver, config)
+		require.NoError(t, err)
+		subscribeChan, cancelSubscribe := client.Subscribe(EventKindJobInterrupted)
+		t.Cleanup(cancelSubscribe)
+
+		startCtx, startCtxCancel := context.WithCancel(ctx)
+		defer startCtxCancel()
+
+		require.NoError(t, client.Start(startCtx))
+
+		insertRes, err := client.Insert(ctx, JobArgs{}, nil)
+		require.NoError(t, err)
+
+		riversharedtest.WaitOrTimeout(t, jobStartedChan)
+
+		startCtxCancel()
+
+		riversharedtest.WaitOrTimeout(t, client.Stopped())
+
+		event := riversharedtest.WaitOrTimeout(t, subscribeChan)
+		require.Equal(t, EventKindJobInterrupted, event.Kind)
+		require.Equal(t, insertRes.Job.ID, event.Job.ID)
+		require.Equal(t, rivertype.JobStateAvailable, event.Job.State)
+
+		jobAfter, err := client.driver.GetExecutor().JobGetByID(ctx, &riverdriver.JobGetByIDParams{ID: insertRes.Job.ID, Schema: schema})
+		require.NoError(t, err)
+		require.Equal(t, 0, jobAfter.Attempt)
+		require.Empty(t, jobAfter.Errors)
+	})
 }
 
 func Test_Client_SoftStopTimeout(t *testing.T) {
@@ -4369,6 +4421,31 @@ func Test_Client_InsertManyFast(t *testing.T) {
 		require.False(t, client.insertNotifyLimiter.ShouldTrigger("b"))
 
 		require.NoError(t, client.Stop(ctx))
+	})
+
+	// Regression test: InsertManyFast doesn't return job rows, so notifying a
+	// producer on drivers without a listener used to panic on nil results.
+	t.Run("ProducerFetchLimiterCalled", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			dbPool = riversharedtest.DBPoolClone(ctx, t)
+			driver = NewDriverWithoutListenNotify(dbPool)
+			schema = riverdbtest.TestSchema(ctx, t, driver, nil)
+			config = newTestConfig(t, schema)
+		)
+
+		client, err := NewClient(driver, config)
+		require.NoError(t, err)
+		client.producersByQueueName[QueueDefault].testSignals.Init(t)
+
+		startClient(ctx, t, client)
+
+		count, err := client.InsertManyFast(ctx, []InsertManyParams{{Args: noOpArgs{}}})
+		require.NoError(t, err)
+		require.Equal(t, 1, count)
+
+		client.producersByQueueName[QueueDefault].testSignals.JobFetchTriggered.WaitOrTimeout()
 	})
 
 	t.Run("WithInsertOptsScheduledAtZeroTime", func(t *testing.T) {
@@ -5942,6 +6019,40 @@ func Test_Client_JobUpdate(t *testing.T) {
 		updatedJob, err := client.JobGet(ctx, job.ID)
 		require.NoError(t, err)
 		require.Equal(t, `"my job output from context"`, string(updatedJob.Output()))
+	})
+
+	// Output set with MetadataSet isn't stored as json.RawMessage like output
+	// recorded with RecordOutput, and used to cause a panic.
+	t.Run("OutputFromContextSetWithMetadataSet", func(t *testing.T) {
+		t.Parallel()
+
+		client, _ := setup(t)
+
+		insertRes, err := client.Insert(ctx, noOpArgs{}, &InsertOpts{})
+		require.NoError(t, err)
+
+		ctx := context.WithValue(ctx, jobexecutor.ContextKeyMetadataUpdates, map[string]any{})
+		require.NoError(t, MetadataSet(ctx, rivertype.MetadataKeyOutput, "my job output from metadata"))
+
+		job, err := client.JobUpdate(ctx, insertRes.Job.ID, &JobUpdateParams{})
+		require.NoError(t, err)
+		require.Equal(t, `"my job output from metadata"`, string(job.Output()))
+	})
+
+	t.Run("OutputFromContextSetWithMetadataSetTooLarge", func(t *testing.T) {
+		t.Parallel()
+
+		// No database needed because the size check fails before the update.
+		client, err := NewClient(riverpgxv5.New(nil), &Config{
+			Logger: riversharedtest.Logger(t),
+		})
+		require.NoError(t, err)
+
+		ctx := context.WithValue(ctx, jobexecutor.ContextKeyMetadataUpdates, map[string]any{})
+		require.NoError(t, MetadataSet(ctx, rivertype.MetadataKeyOutput, strings.Repeat("x", maxOutputSizeBytes+1)))
+
+		_, err = client.JobUpdate(ctx, 123, &JobUpdateParams{})
+		require.ErrorContains(t, err, "output is too large")
 	})
 
 	t.Run("ParamOutputTakesPrecedenceOverContextOutput", func(t *testing.T) {
@@ -8704,6 +8815,22 @@ func Test_Client_YugabyteQueueControl(t *testing.T) {
 func Test_Config_WithDefaults(t *testing.T) {
 	t.Parallel()
 
+	t.Run("JobCleanerTimeoutCustom", func(t *testing.T) {
+		t.Parallel()
+
+		config := (&Config{JobCleanerTimeout: 5 * time.Second}).WithDefaults()
+
+		require.Equal(t, 5*time.Second, config.JobCleanerTimeout)
+	})
+
+	t.Run("JobCleanerTimeoutDefault", func(t *testing.T) {
+		t.Parallel()
+
+		config := (&Config{}).WithDefaults()
+
+		require.Equal(t, riversharedmaintenance.JobCleanerTimeoutDefault, config.JobCleanerTimeout)
+	})
+
 	t.Run("ReindexerIndexNamesEmptyStaysNonNil", func(t *testing.T) {
 		t.Parallel()
 
@@ -9607,6 +9734,54 @@ func Test_NewClient_Validations(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_QueueBundle_Add(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("StartErrorUnregistersQueue", func(t *testing.T) {
+		t.Parallel()
+
+		client, err := NewClient(&driverWithQueueCreateError{Driver: *riverpgxv5.New(nil)}, newTestConfig(t, ""))
+		require.NoError(t, err)
+
+		// Simulate a started client so that Add starts the new producer.
+		client.queues.fetchCtx = ctx
+		client.queues.workCtx = ctx
+
+		require.ErrorIs(t, client.Queues().Add("new_queue", QueueConfig{MaxWorkers: 2}), errQueueCreate)
+
+		// The queue isn't left registered, so another attempt fails the same
+		// way rather than with QueueAlreadyAddedError.
+		require.ErrorIs(t, client.Queues().Add("new_queue", QueueConfig{MaxWorkers: 2}), errQueueCreate)
+		require.NotContains(t, client.producersByQueueName, "new_queue")
+	})
+}
+
+func Test_QueueConfig_validate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("FetchCooldownBelowMinimum", func(t *testing.T) {
+		t.Parallel()
+
+		err := QueueConfig{FetchCooldown: time.Microsecond, MaxWorkers: 1}.validate(QueueDefault, FetchCooldownDefault, FetchPollIntervalDefault)
+		require.EqualError(t, err, fmt.Sprintf("FetchCooldown must be at least %s", FetchCooldownMin))
+	})
+
+	t.Run("FetchPollIntervalBelowMinimum", func(t *testing.T) {
+		t.Parallel()
+
+		err := QueueConfig{FetchPollInterval: time.Microsecond, MaxWorkers: 1}.validate(QueueDefault, FetchCooldownMin, FetchPollIntervalDefault)
+		require.EqualError(t, err, fmt.Sprintf("FetchPollInterval must be at least %s", FetchPollIntervalMin))
+	})
+
+	t.Run("ZeroValuesUseClientSettings", func(t *testing.T) {
+		t.Parallel()
+
+		require.NoError(t, QueueConfig{MaxWorkers: 1}.validate(QueueDefault, FetchCooldownDefault, FetchPollIntervalDefault))
+	})
 }
 
 func TestReindexerIndexNamesDefault(t *testing.T) {
@@ -10521,6 +10696,28 @@ func NewDriverWithoutListenNotify(dbPool *pgxpool.Pool) *DriverWithoutListenNoti
 
 func (d *DriverWithoutListenNotify) SupportsListener() bool     { return false }
 func (d *DriverWithoutListenNotify) SupportsListenNotify() bool { return false }
+
+// driverWithQueueCreateError is a driver whose executors fail to create
+// queues, causing producers to fail on start. It needs no database.
+type driverWithQueueCreateError struct {
+	riverpgxv5.Driver
+}
+
+func (d *driverWithQueueCreateError) GetExecutor() riverdriver.Executor {
+	return &executorWithQueueCreateError{Executor: d.Driver.GetExecutor()}
+}
+
+func (d *driverWithQueueCreateError) PoolIsSet() bool { return true }
+
+type executorWithQueueCreateError struct {
+	riverdriver.Executor
+}
+
+var errQueueCreate = errors.New("queue create error")
+
+func (e *executorWithQueueCreateError) QueueCreateOrSetUpdatedAt(ctx context.Context, params *riverdriver.QueueCreateOrSetUpdatedAtParams) (*rivertype.Queue, error) {
+	return nil, errQueueCreate
+}
 
 type JobArgsWithHooksFunc func() []rivertype.Hook
 

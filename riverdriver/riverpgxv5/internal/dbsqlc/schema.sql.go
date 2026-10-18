@@ -13,21 +13,25 @@ import (
 
 const columnExists = `-- name: ColumnExists :one
 SELECT EXISTS (
-    SELECT column_name
-    FROM information_schema.columns 
-    WHERE table_name = $1::text
-        AND table_schema = /* TEMPLATE_BEGIN: schema */ CURRENT_SCHEMA /* TEMPLATE_END */
-        AND column_name = $2::text
+    SELECT 1
+    FROM pg_catalog.pg_attribute
+    WHERE attrelid = to_regclass($1::text)
+        AND attname = $2::text
+        AND attnum > 0
+        AND NOT attisdropped
 )
 `
 
 type ColumnExistsParams struct {
-	TableName  string
-	ColumnName string
+	SchemaAndTable string
+	ColumnName     string
 }
 
+// Resolves the table the same way as TableExists (`to_regclass`, which falls
+// back to `search_path` when the name is unqualified) so that the two agree on
+// which table is being inspected.
 func (q *Queries) ColumnExists(ctx context.Context, db DBTX, arg *ColumnExistsParams) (bool, error) {
-	row := db.QueryRow(ctx, columnExists, arg.TableName, arg.ColumnName)
+	row := db.QueryRow(ctx, columnExists, arg.SchemaAndTable, arg.ColumnName)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

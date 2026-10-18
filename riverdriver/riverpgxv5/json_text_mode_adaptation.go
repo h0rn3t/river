@@ -72,7 +72,11 @@ func jsonPlaceholderCasts(sql string) []jsonPlaceholderCast {
 	return casts
 }
 
-func adaptArgsForJSONTextModes(defaultMode pgx.QueryExecMode, sql string, args []any) []any {
+// uncastFallbackEnd is the index of the first arg that the uncast fallback
+// below must not adapt. Callers pass the number of args the query had before
+// sqlctemplate appended named args to it, because named args are provided by
+// users, and an uncast `[]byte` among them may well be intended as `bytea`.
+func adaptArgsForJSONTextModes(defaultMode pgx.QueryExecMode, sql string, args []any, uncastFallbackEnd int) []any {
 	queryOptions := parseQueryOptions(defaultMode, args)
 	if !isJSONTextMode(queryOptions.mode) {
 		return args
@@ -84,10 +88,10 @@ func adaptArgsForJSONTextModes(defaultMode pgx.QueryExecMode, sql string, args [
 		return wrapQueryRewriterForJSONTextMode(args, queryOptions.queryRewriterIndex, queryOptions.mode)
 	}
 
-	return adaptBindArgsForJSONTextMode(sql, args, queryOptions.bindArgStart)
+	return adaptBindArgsForJSONTextMode(sql, args, queryOptions.bindArgStart, uncastFallbackEnd)
 }
 
-func adaptBindArgsForJSONTextMode(sql string, args []any, bindArgStart int) []any {
+func adaptBindArgsForJSONTextMode(sql string, args []any, bindArgStart, uncastFallbackEnd int) []any {
 	casts := jsonPlaceholderCasts(sql)
 	if len(casts) == 0 {
 		casts = nil
@@ -116,9 +120,10 @@ func adaptBindArgsForJSONTextMode(sql string, args []any, bindArgStart int) []an
 	// In simple/exec modes, pgx assumes []byte is bytea, so these would fail.
 	//
 	// We adapt remaining []byte/[][]byte arguments unless the placeholder is
-	// explicitly cast to bytea. New SQL that intentionally expects binary data
+	// explicitly cast to bytea or the argument is a user-provided named arg
+	// (at or beyond uncastFallbackEnd). New SQL that intentionally expects binary data
 	// should always use an explicit bytea cast (`::bytea` or CAST(... AS bytea)).
-	for i := bindArgStart; i < len(args); i++ {
+	for i := bindArgStart; i < min(len(args), uncastFallbackEnd); i++ {
 		logicalIndex := i - bindArgStart
 		if _, isBytea := byteaArgIndices[logicalIndex]; isBytea {
 			continue
@@ -172,7 +177,7 @@ func (r jsonTextModeAdaptingQueryRewriter) RewriteQuery(ctx context.Context, con
 	if !isJSONTextMode(r.mode) {
 		return sql, args, nil
 	}
-	return sql, adaptBindArgsForJSONTextMode(sql, args, 0), nil
+	return sql, adaptBindArgsForJSONTextMode(sql, args, 0, len(args)), nil
 }
 
 func isJSONTextMode(mode pgx.QueryExecMode) bool {

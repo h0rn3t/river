@@ -241,7 +241,7 @@ func Test_JobListParams_toDBParams(t *testing.T) {
 		driverParams, err := dblist.JobMakeDriverParams(context.Background(), dbParams, riverpgxv5.New(nil))
 		require.NoError(t, err)
 		require.Equal(t, "completed", driverParams.NamedArgs["state"])
-		require.Equal(t, "state = @state\n  AND finalized_at IS NOT NULL", driverParams.WhereClause)
+		require.Equal(t, "(state = @state)\n  AND (finalized_at IS NOT NULL)", driverParams.WhereClause)
 	})
 
 	t.Run("FinalizedAtWithMixedStates", func(t *testing.T) {
@@ -351,7 +351,7 @@ func Test_JobListParams_toDBParams_CustomConditions(t *testing.T) {
 		// A condition that excludes completed jobs is intentional; don't repair it.
 		bundle.params = bundle.params.Where("finalized_at IS NULL")
 		driverParams := driverParamsFunc(t, bundle)
-		require.Equal(t, "state = any(@state)\n  AND finalized_at IS NULL", driverParams.WhereClause)
+		require.Equal(t, "state = any(@state)\n  AND (finalized_at IS NULL)", driverParams.WhereClause)
 		require.Equal(t, map[string]any{"state": []string{"completed"}}, driverParams.NamedArgs)
 	})
 
@@ -363,7 +363,7 @@ func Test_JobListParams_toDBParams_CustomConditions(t *testing.T) {
 		// Keep both state conditions, even though no row can satisfy both.
 		bundle.params = bundle.params.Where("state = @other_state", NamedArgs{"other_state": "available"})
 		driverParams := driverParamsFunc(t, bundle)
-		require.Equal(t, "state = any(@state)\n  AND state = @other_state", driverParams.WhereClause)
+		require.Equal(t, "state = any(@state)\n  AND (state = @other_state)", driverParams.WhereClause)
 		require.Equal(t, map[string]any{"other_state": "available", "state": []string{"completed"}}, driverParams.NamedArgs)
 	})
 
@@ -389,7 +389,7 @@ func Test_JobListParams_toDBParams_CustomConditions(t *testing.T) {
 		// Custom SQL can reuse @state, so its value must remain an array.
 		bundle.params = bundle.params.Where("state = ANY(@state)")
 		driverParams := driverParamsFunc(t, bundle)
-		require.Equal(t, "state = any(@state)\n  AND state = ANY(@state)", driverParams.WhereClause)
+		require.Equal(t, "state = any(@state)\n  AND (state = ANY(@state))", driverParams.WhereClause)
 		require.Equal(t, map[string]any{"state": []string{"completed"}}, driverParams.NamedArgs)
 	})
 
@@ -400,7 +400,7 @@ func Test_JobListParams_toDBParams_CustomConditions(t *testing.T) {
 
 		bundle.params = bundle.params.Where("(state = @other_state OR finalized_at IS NULL)", NamedArgs{"other_state": "completed"})
 		driverParams := driverParamsFunc(t, bundle)
-		require.Equal(t, "state = any(@state)\n  AND (state = @other_state OR finalized_at IS NULL)", driverParams.WhereClause)
+		require.Equal(t, "state = any(@state)\n  AND ((state = @other_state OR finalized_at IS NULL))", driverParams.WhereClause)
 		require.Equal(t, map[string]any{"other_state": "completed", "state": []string{"completed"}}, driverParams.NamedArgs)
 	})
 
@@ -413,8 +413,25 @@ func Test_JobListParams_toDBParams_CustomConditions(t *testing.T) {
 		// the array filter and receives no inferred null condition.
 		bundle.params = bundle.params.Metadata(`{"selected":true}`)
 		driverParams := driverParamsFunc(t, bundle)
-		require.Equal(t, "state = any(@state)\n  AND metadata @> @metadata_fragment::jsonb", driverParams.WhereClause)
+		require.Equal(t, "state = any(@state)\n  AND (metadata @> @metadata_fragment::jsonb)", driverParams.WhereClause)
 		require.Equal(t, map[string]any{"metadata_fragment": `{"selected":true}`, "state": []string{"completed"}}, driverParams.NamedArgs)
+	})
+
+	t.Run("NamedArgsCopied", func(t *testing.T) {
+		t.Parallel()
+
+		bundle := setup(t)
+
+		var (
+			firstNamedArgs  = NamedArgs{"kind_a": "a"}
+			secondNamedArgs = NamedArgs{"kind_b": "b"}
+		)
+		bundle.params = bundle.params.Where("kind = @kind_a OR kind = @kind_b", firstNamedArgs, secondNamedArgs)
+
+		// The caller's maps must neither be merged into nor aliased.
+		require.Equal(t, NamedArgs{"kind_a": "a"}, firstNamedArgs)
+		firstNamedArgs["kind_a"] = "mutated"
+		require.Equal(t, map[string]any{"kind_a": "a", "kind_b": "b"}, bundle.params.where[0].NamedArgs)
 	})
 
 	t.Run("Pagination", func(t *testing.T) {
@@ -422,15 +439,16 @@ func Test_JobListParams_toDBParams_CustomConditions(t *testing.T) {
 
 		bundle := setup(t)
 
-		// Appending the cursor must preserve the custom OR's existing grouping
-		// and leave its named argument independent of the cursor arguments.
+		// Appending the cursor must not let the custom OR escape the cursor
+		// condition, and must leave its named argument independent of the
+		// cursor arguments.
 		cursorTime := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
 		bundle.params = bundle.params.
 			Where("state = @other_state OR finalized_at IS NULL", NamedArgs{"other_state": "completed"}).
 			After(&JobListCursor{id: 42, time: cursorTime})
 		driverParams := driverParamsFunc(t, bundle)
 		const cursorSQL = `("finalized_at" < @cursor_time OR ("finalized_at" = @cursor_time AND "id" < @after_id))`
-		require.Equal(t, "state = any(@state)\n  AND state = @other_state OR finalized_at IS NULL\n  AND "+cursorSQL, driverParams.WhereClause)
+		require.Equal(t, "state = any(@state)\n  AND (state = @other_state OR finalized_at IS NULL)\n  AND ("+cursorSQL+")", driverParams.WhereClause)
 		require.Equal(t, map[string]any{
 			"after_id":    int64(42),
 			"cursor_time": cursorTime,
@@ -460,11 +478,11 @@ func Test_JobListParams_toDBParams_CustomConditions(t *testing.T) {
 
 		bundle := setup(t)
 
-		// This OR can admit non-finalized rows despite the typed state filter.
-		// Adding parentheses or a non-null condition would change the results.
+		// The custom condition is parenthesized so that its OR can't admit rows
+		// excluded by the typed state filter.
 		bundle.params = bundle.params.Where("false OR finalized_at IS NULL")
 		driverParams := driverParamsFunc(t, bundle)
-		require.Equal(t, "state = any(@state)\n  AND false OR finalized_at IS NULL", driverParams.WhereClause)
+		require.Equal(t, "state = any(@state)\n  AND (false OR finalized_at IS NULL)", driverParams.WhereClause)
 		require.Equal(t, map[string]any{"state": []string{"completed"}}, driverParams.NamedArgs)
 	})
 }
@@ -483,7 +501,7 @@ func Test_JobListParams_toDBParamsFinalizedIndex(t *testing.T) {
 					require.NoError(t, err)
 					driverParams, err := dblist.JobMakeDriverParams(context.Background(), dbParams, riverpgxv5.New(nil))
 					require.NoError(t, err)
-					require.Equal(t, "state = @state\n  AND finalized_at IS NOT NULL", driverParams.WhereClause)
+					require.Equal(t, "(state = @state)\n  AND (finalized_at IS NOT NULL)", driverParams.WhereClause)
 					require.Equal(t, map[string]any{"state": string(state)}, driverParams.NamedArgs)
 					direction := "ASC"
 					if order == SortOrderDesc {
@@ -500,7 +518,7 @@ func Test_JobListParams_toDBParamsFinalizedIndex(t *testing.T) {
 					driverParams, err = dblist.JobMakeDriverParams(context.Background(), dbParams, riverpgxv5.New(nil))
 					require.NoError(t, err)
 					require.Len(t, dbParams.Where, 3)
-					require.Equal(t, "state = @state\n  AND finalized_at IS NOT NULL\n  AND "+dbParams.Where[2].SQL, driverParams.WhereClause)
+					require.Equal(t, "(state = @state)\n  AND (finalized_at IS NOT NULL)\n  AND ("+dbParams.Where[2].SQL+")", driverParams.WhereClause)
 					require.Equal(t, map[string]any{"after_id": int64(42), "cursor_time": params.after.time, "state": string(state)}, driverParams.NamedArgs)
 					require.Empty(t, params.where)
 					repeated, err := params.toDBParams()
@@ -615,14 +633,14 @@ func Test_JobListParams_toDBParamsWithoutFinalizedIndex(t *testing.T) {
 		where  string
 	}{
 		{"Default", NewJobListParams(), "state = any(@state)"},
-		{"FinalizedByID", NewJobListParams().States(rivertype.JobStateCompleted), "state = @state"},
-		{"FinalizedByScheduledAt", NewJobListParams().States(rivertype.JobStateCompleted).OrderBy(JobListOrderByScheduledAt, SortOrderAsc), "state = @state"},
+		{"FinalizedByID", NewJobListParams().States(rivertype.JobStateCompleted), "(state = @state)"},
+		{"FinalizedByScheduledAt", NewJobListParams().States(rivertype.JobStateCompleted).OrderBy(JobListOrderByScheduledAt, SortOrderAsc), "(state = @state)"},
 		{"MixedStatesByTime", NewJobListParams().States(rivertype.JobStateCompleted, rivertype.JobStateAvailable).OrderBy(JobListOrderByTime, SortOrderDesc), "state = any(@state)"},
 		{"MultipleFinalizedStates", NewJobListParams().OrderBy(JobListOrderByFinalizedAt, SortOrderAsc), "state = any(@state)"},
 		{"MultipleNonFinalizedStates", NewJobListParams().States(rivertype.JobStateAvailable, rivertype.JobStateRunning).OrderBy(JobListOrderByTime, SortOrderDesc), "state = any(@state)"},
-		{"NonFinalized", NewJobListParams().States(rivertype.JobStateAvailable).OrderBy(JobListOrderByTime, SortOrderAsc), "state = @state"},
+		{"NonFinalized", NewJobListParams().States(rivertype.JobStateAvailable).OrderBy(JobListOrderByTime, SortOrderAsc), "(state = @state)"},
 		{"Unfiltered", NewJobListParams().States(), "true"},
-		{"Unknown", NewJobListParams().States("unknown").OrderBy(JobListOrderByFinalizedAt, SortOrderAsc), "state = @state"},
+		{"Unknown", NewJobListParams().States("unknown").OrderBy(JobListOrderByFinalizedAt, SortOrderAsc), "(state = @state)"},
 		{"UnknownAndFinalized", NewJobListParams().States(rivertype.JobStateCompleted, "unknown").OrderBy(JobListOrderByTime, SortOrderDesc), "state = any(@state)"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

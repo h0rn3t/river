@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -352,10 +351,13 @@ func (e *Elector) Start(ctx context.Context) error {
 		})
 		if err != nil {
 			stopped()
-			if strings.HasSuffix(err.Error(), "conn closed") || errors.Is(err, context.Canceled) {
-				return nil
+			// Only a stopping elector may swallow the error. Any other failure,
+			// including a closed listener connection, is returned because an
+			// elector that never runs leaves this client unable to lead.
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				return nil //nolint:nilerr // stopping elector; the error only reflects the cancellation
 			}
-			return err
+			return fmt.Errorf("error listening for leadership notifications: %w", err)
 		}
 	}
 
@@ -490,7 +492,6 @@ func (e *Elector) handleLeadershipNotification(ctx context.Context, topic notifi
 // either a reelection interval, a forced resignation, or shutdown.
 func (e *Elector) runLeaderState(ctx context.Context, term leadershipTerm) error {
 	defer e.clearPendingRequestResign()
-	defer e.publishLeadershipState(false)
 
 	shouldResign := true
 
@@ -505,6 +506,11 @@ func (e *Elector) runLeaderState(ctx context.Context, term leadershipTerm) error
 			e.attemptResignLoop(ctx, term) // will resign using WithoutCancel context, but ctx sent for logging
 		}
 	}()
+
+	// Deferred after the resign loop so that it runs first: subscribers must
+	// stop leader-only work before the resign loop, whose retries can outlast
+	// the trusted leadership window.
+	defer e.publishLeadershipState(false)
 
 	timer := time.NewTimer(0)
 	defer timer.Stop()

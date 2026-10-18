@@ -7,6 +7,7 @@ package dbsqlc
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/lib/pq"
@@ -252,4 +253,26 @@ func (q *Queries) RiverMigrationInsertManyAssumingMain(ctx context.Context, db D
 		return nil, err
 	}
 	return items, nil
+}
+
+const riverMigrationLock = `-- name: RiverMigrationLock :exec
+SELECT pg_advisory_xact_lock(
+    hashtextextended(
+        concat('river_migrate:', coalesce($1::text, current_schema()), ':', $2::text),
+        0
+    )
+)
+`
+
+type RiverMigrationLockParams struct {
+	Schema sql.NullString
+	Line   string
+}
+
+// Takes a transaction-scoped advisory lock that serializes migrators operating
+// on the same schema and line. An empty schema resolves to the current schema
+// so that it serializes with migrators targeting that schema explicitly.
+func (q *Queries) RiverMigrationLock(ctx context.Context, db DBTX, arg *RiverMigrationLockParams) error {
+	_, err := db.ExecContext(ctx, riverMigrationLock, arg.Schema, arg.Line)
+	return err
 }

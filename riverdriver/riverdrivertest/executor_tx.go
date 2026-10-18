@@ -217,6 +217,40 @@ func exerciseExecutorTx[TTx any](ctx context.Context, t *testing.T,
 			_, err = tx1.JobGetByID(ctx, &riverdriver.JobGetByIDParams{ID: job.ID})
 			require.NoError(t, err)
 		})
+
+		t.Run("RollbackAfterDatabaseEndedTransaction", func(t *testing.T) {
+			t.Parallel()
+
+			driver, schema := driverWithSchema(ctx, t, nil)
+			if driver.DatabaseName() != riverdriver.DatabaseNameSQLServer {
+				t.Skip("only SQL Server ends a transaction by itself on an error; Postgres leaves it to be rolled back")
+			}
+			exec := driver.GetExecutor()
+
+			tx1, err := exec.Begin(ctx)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = tx1.Rollback(ctx) })
+
+			job := testfactory.Job(ctx, t, tx1, &testfactory.JobOpts{Schema: schema})
+
+			tx2, err := tx1.Begin(ctx)
+			require.NoError(t, err)
+
+			// With XACT_ABORT on, SQL Server rolls back the whole transaction
+			// on any error, like it does on some errors with it off (like
+			// being chosen as a deadlock victim).
+			require.NoError(t, tx2.Exec(ctx, "SET XACT_ABORT ON"))
+			require.Error(t, tx2.Exec(ctx, "SELECT 1 / 0"))
+			require.Error(t, tx2.Rollback(ctx))
+
+			// Statements on the transaction fail rather than each commit by
+			// itself, and so does committing it.
+			require.Error(t, tx1.Exec(ctx, "SELECT 1"))
+			require.Error(t, tx1.Commit(ctx))
+
+			_, err = exec.JobGetByID(ctx, &riverdriver.JobGetByIDParams{ID: job.ID, Schema: schema})
+			require.ErrorIs(t, err, rivertype.ErrNotFound)
+		})
 	})
 
 	t.Run("Exec", func(t *testing.T) {

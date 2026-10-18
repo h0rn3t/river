@@ -894,8 +894,10 @@ func ExerciseClient[TTx any](ctx context.Context, t *testing.T,
 			{nil, "ContradictoryFinalizedAt", "finalized_at IS NULL", false, false},
 			{river.NamedArgs{"other_state": "available"}, "ContradictoryState", "state = @other_state", false, false},
 			{river.NamedArgs{"other_state": "completed"}, "GroupedOr", "(state = @other_state OR finalized_at IS NULL)", false, true},
-			{nil, "UngroupedOr", "false OR finalized_at IS NULL", true, false},
-			{river.NamedArgs{"other_state": "completed"}, "UngroupedOrWithNamedArgument", "state = @other_state OR finalized_at IS NULL", true, true},
+			// A Where condition is parenthesized, so an ungrouped OR in it
+			// doesn't escape the state filter.
+			{nil, "UngroupedOr", "false OR finalized_at IS NULL", false, false},
+			{river.NamedArgs{"other_state": "completed"}, "UngroupedOrWithNamedArgument", "state = @other_state OR finalized_at IS NULL", false, true},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()

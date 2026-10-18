@@ -578,14 +578,13 @@ type NamedArgs map[string]any
 func (p *JobListParams) Where(sql string, namedArgsMany ...NamedArgs) *JobListParams {
 	paramsCopy := p.copy()
 
+	// Merge into a new map so the caller's maps are neither aliased nor
+	// modified.
 	var allNamedArgs NamedArgs
 	if len(namedArgsMany) > 0 {
-		for i, namedArgs := range namedArgsMany {
-			if i == 0 {
-				allNamedArgs = namedArgs
-			} else {
-				maps.Copy(allNamedArgs, namedArgs)
-			}
+		allNamedArgs = make(NamedArgs)
+		for _, namedArgs := range namedArgsMany {
+			maps.Copy(allNamedArgs, namedArgs)
 		}
 	}
 

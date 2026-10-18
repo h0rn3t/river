@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/h0rn3t/river"
+	"github.com/h0rn3t/river/internal/jobexecutor"
 	"github.com/h0rn3t/river/riverdbtest"
 	"github.com/h0rn3t/river/riverdriver"
 	"github.com/h0rn3t/river/riverdriver/riverpgxv5"
@@ -558,5 +559,86 @@ func TestMiddleware(t *testing.T) {
 		},
 			metadataWithLog.RiverLog,
 		)
+	})
+}
+
+// Middleware installed on a worker (as opposed to the client) never has
+// baseservice.Init run on it, so it must work without a logger or name.
+func TestMiddlewareWithoutInit(t *testing.T) {
+	t.Parallel()
+
+	type testBundle struct {
+		metadataUpdates map[string]any
+	}
+
+	setup := func(t *testing.T) (context.Context, *testBundle) {
+		t.Helper()
+
+		metadataUpdates := make(map[string]any)
+
+		return context.WithValue(t.Context(), jobexecutor.ContextKeyMetadataUpdates, metadataUpdates),
+			&testBundle{metadataUpdates: metadataUpdates}
+	}
+
+	newMiddleware := func(config *MiddlewareConfig) *Middleware {
+		return NewMiddleware(func(w io.Writer) slog.Handler {
+			return slog.NewTextHandler(w, &slog.HandlerOptions{ReplaceAttr: slogutil.NoLevelTime})
+		}, config)
+	}
+
+	logMessage := func(ctx context.Context) error {
+		Logger(ctx).InfoContext(ctx, "Logged from worker")
+		return nil
+	}
+
+	t.Run("NonArrayLogMetadata", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, bundle := setup(t)
+
+		middleware := newMiddleware(nil)
+		require.Nil(t, middleware.Logger)
+
+		job := &rivertype.JobRow{Attempt: 1, Metadata: []byte(`{"river:log":"not an array"}`)}
+		require.NoError(t, middleware.Work(ctx, job, logMessage))
+		require.NotContains(t, bundle.metadataUpdates, metadataKey)
+	})
+
+	t.Run("TruncatedAtMaxSizeBytes", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, bundle := setup(t)
+
+		middleware := newMiddleware(&MiddlewareConfig{MaxSizeBytes: 16})
+		require.Nil(t, middleware.Logger)
+
+		job := &rivertype.JobRow{Attempt: 1, Metadata: []byte(`{}`)}
+		require.NoError(t, middleware.Work(ctx, job, logMessage))
+
+		var logAttempts []logAttempt
+		require.NoError(t, json.Unmarshal(bundle.metadataUpdates[metadataKey].(json.RawMessage), &logAttempts)) //nolint:forcetypeassert
+		require.Equal(t, []logAttempt{{Attempt: 1, Log: `msg="Logged from`}}, logAttempts)
+	})
+}
+
+func TestNewMiddleware(t *testing.T) {
+	t.Parallel()
+
+	newHandler := func(w io.Writer) slog.Handler { return slog.NewTextHandler(w, nil) }
+
+	t.Run("PanicsOnNegativeMaxSizeBytes", func(t *testing.T) {
+		t.Parallel()
+
+		require.PanicsWithValue(t, "riverlog: MiddlewareConfig.MaxSizeBytes must be greater or equal to zero", func() {
+			NewMiddleware(newHandler, &MiddlewareConfig{MaxSizeBytes: -1})
+		})
+	})
+
+	t.Run("PanicsOnNegativeMaxTotalBytes", func(t *testing.T) {
+		t.Parallel()
+
+		require.PanicsWithValue(t, "riverlog: MiddlewareConfig.MaxTotalBytes must be greater or equal to zero", func() {
+			NewMiddlewareCustomContext(func(ctx context.Context, w io.Writer) context.Context { return ctx }, &MiddlewareConfig{MaxTotalBytes: -1})
+		})
 	})
 }

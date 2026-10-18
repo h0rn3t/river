@@ -402,6 +402,8 @@ func (p *producer) StartWorkContext(fetchCtx, workCtx context.Context) error {
 
 		controlSub, err = p.config.Notifier.Listen(fetchCtx, notifier.NotificationTopicControl, p.handleControlNotification(workCtx))
 		if err != nil {
+			// The run loop that normally unlistens won't be started.
+			insertSub.Unlisten(fetchCtx)
 			stopped()
 			if strings.HasSuffix(err.Error(), "conn closed") || errors.Is(err, context.Canceled) {
 				return nil
@@ -484,8 +486,18 @@ func (p *producer) TriggerJobFetch() {
 // listen/notify. This is used by clients using drivers that don't support
 // listeners to wake a producer immediately after a queue control event was
 // known to be performed so the producer doesn't have to wait on polling.
-func (p *producer) TriggerQueueControlEvent(controlEvent *controlEventPayload) {
-	p.queueControlCh <- controlEvent
+//
+// The send never blocks because the channel is only drained while the producer
+// is running, and callers hold the client's producers lock. If the buffer is
+// full, the event is dropped and the producer picks up the change on its next
+// poll instead.
+func (p *producer) TriggerQueueControlEvent(ctx context.Context, controlEvent *controlEventPayload) {
+	select {
+	case p.queueControlCh <- controlEvent:
+	default:
+		p.Logger.WarnContext(ctx, p.Name+": Queue control event dropped due to full buffer", slog.String("action", string(controlEvent.Action)))
+		return
+	}
 	p.testSignals.QueueControlEventTriggered.Signal(controlEvent)
 }
 
