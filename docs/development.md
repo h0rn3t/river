@@ -47,8 +47,8 @@ the shared suite in `riverdriver/riverdrivertest` counts toward its driver.
 Use an empty directory, because data from earlier runs is merged in. In CI,
 each suite's race job uploads its coverage to
 [Codecov](https://codecov.io/gh/h0rn3t/river) under the `postgres`, `sqlite`,
-or `sqlserver` flag, and Codecov merges them. Uploads from this repository
-need the Codecov upload token in the `CODECOV_TOKEN` Actions secret.
+or `sqlserver` flag, and Codecov merges them. Uploads authenticate with the
+job's GitHub OIDC token, so the repository needs no Codecov secret.
 [`codecov.yml`](../codecov.yml) excludes test infrastructure, development
 tooling, and generated sqlc code.
 

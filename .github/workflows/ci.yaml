@@ -65,6 +65,10 @@ jobs:
 
   build_and_test:
     name: build_and_test (${{ matrix.go-version }}, ${{ matrix.postgres-version }}${{ matrix.primary && ', race' || '' }})
+    permissions:
+      contents: read
+      # Lets the Codecov upload authenticate with an OIDC token.
+      id-token: write
     env:
       # The special value "local" tells Go to use the bundled Go version rather
       # than trying to fetch one according to a `toolchain` value in `go.mod`.
@@ -141,16 +145,24 @@ jobs:
         if: matrix.primary
         uses: codecov/codecov-action@v7
         # Uploading is best-effort. Tests and lint gate the build, so a Codecov
-        # outage shouldn't.
+        # outage shouldn't. A failed upload still shows as a failed step.
         continue-on-error: true
         with:
           disable_search: true
+          fail_ci_if_error: true
           files: ./coverage.txt
           flags: postgres
-          token: ${{ secrets.CODECOV_TOKEN }}
+          # Authenticate with the job's OIDC token instead of an upload token
+          # secret. GitHub issues no OIDC token to pull requests from forks, so
+          # those upload without a token instead.
+          use_oidc: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
 
   build_and_test_sqlite:
     name: build_and_test_sqlite (${{ matrix.go-version }}${{ matrix.primary && ', race' || '' }})
+    permissions:
+      contents: read
+      # Lets the Codecov upload authenticate with an OIDC token.
+      id-token: write
     env:
       GOTOOLCHAIN: local
     runs-on: ubuntu-latest
@@ -186,16 +198,24 @@ jobs:
         if: matrix.primary
         uses: codecov/codecov-action@v7
         # Uploading is best-effort. Tests and lint gate the build, so a Codecov
-        # outage shouldn't.
+        # outage shouldn't. A failed upload still shows as a failed step.
         continue-on-error: true
         with:
           disable_search: true
+          fail_ci_if_error: true
           files: ./coverage.txt
           flags: sqlite
-          token: ${{ secrets.CODECOV_TOKEN }}
+          # Authenticate with the job's OIDC token instead of an upload token
+          # secret. GitHub issues no OIDC token to pull requests from forks, so
+          # those upload without a token instead.
+          use_oidc: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
 
   build_and_test_sqlserver:
     name: build_and_test_sqlserver (${{ matrix.go-version }}, ${{ matrix.sqlserver-version }}${{ matrix.primary && ', race' || '' }})
+    permissions:
+      contents: read
+      # Lets the Codecov upload authenticate with an OIDC token.
+      id-token: write
     env:
       GOTOOLCHAIN: local
       TEST_SQLSERVER_DATABASE_URL: sqlserver://sa:RiverTest1Password@localhost:1433?database=river_test&encrypt=disable
@@ -260,13 +280,17 @@ jobs:
         if: matrix.primary
         uses: codecov/codecov-action@v7
         # Uploading is best-effort. Tests and lint gate the build, so a Codecov
-        # outage shouldn't.
+        # outage shouldn't. A failed upload still shows as a failed step.
         continue-on-error: true
         with:
           disable_search: true
+          fail_ci_if_error: true
           files: ./coverage.txt
           flags: sqlserver
-          token: ${{ secrets.CODECOV_TOKEN }}
+          # Authenticate with the job's OIDC token instead of an upload token
+          # secret. GitHub issues no OIDC token to pull requests from forks, so
+          # those upload without a token instead.
+          use_oidc: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
 
   cli:
     strategy:
