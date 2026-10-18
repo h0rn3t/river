@@ -698,7 +698,7 @@ func (e *Executor) JobInsertFull(ctx context.Context, params *riverdriver.JobIns
 	var attemptedBy []byte
 	if params.AttemptedBy != nil {
 		var err error
-		attemptedBy, err = json.Marshal(params.AttemptedBy)
+		attemptedBy, err = riverdriver.MarshalJSONNoEscapeHTML(params.AttemptedBy)
 		if err != nil {
 			return nil, err
 		}
@@ -707,13 +707,13 @@ func (e *Executor) JobInsertFull(ctx context.Context, params *riverdriver.JobIns
 	var errors []byte
 	if len(params.Errors) > 0 {
 		var err error
-		errors, err = json.Marshal(sliceutil.Map(params.Errors, func(e []byte) json.RawMessage { return json.RawMessage(e) }))
+		errors, err = riverdriver.MarshalJSONNoEscapeHTML(sliceutil.Map(params.Errors, func(e []byte) json.RawMessage { return json.RawMessage(e) }))
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	tags, err := json.Marshal(params.Tags)
+	tags, err := riverdriver.MarshalJSONNoEscapeHTML(params.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -1062,12 +1062,12 @@ func (e *Executor) JobUpdate(ctx context.Context, params *riverdriver.JobUpdateP
 }
 
 func (e *Executor) JobUpdateFull(ctx context.Context, params *riverdriver.JobUpdateFullParams) (*rivertype.JobRow, error) {
-	attemptedBy, err := json.Marshal(params.AttemptedBy)
+	attemptedBy, err := riverdriver.MarshalJSONNoEscapeHTML(params.AttemptedBy)
 	if err != nil {
 		return nil, err
 	}
 
-	errors, err := json.Marshal(sliceutil.Map(params.Errors, func(e []byte) json.RawMessage { return json.RawMessage(e) }))
+	errors, err := riverdriver.MarshalJSONNoEscapeHTML(sliceutil.Map(params.Errors, func(e []byte) json.RawMessage { return json.RawMessage(e) }))
 	if err != nil {
 		return nil, err
 	}
@@ -1638,7 +1638,7 @@ func sqliteJobInsertFastManyJobsParam(jobs []*riverdriver.JobInsertFastParams, u
 			}
 		}
 
-		tags, err := json.Marshal(job.Tags)
+		tags, err := riverdriver.MarshalJSONNoEscapeHTML(job.Tags)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling tags: %w", err)
 		}
@@ -1660,7 +1660,7 @@ func sqliteJobInsertFastManyJobsParam(jobs []*riverdriver.JobInsertFastParams, u
 		}
 	}
 
-	return json.Marshal(jobsParam)
+	return riverdriver.MarshalJSONNoEscapeHTML(jobsParam)
 }
 
 func sqliteJobInsertFullManyJobsParam(jobs []*riverdriver.JobInsertFullParams) ([]byte, error) {
@@ -1669,7 +1669,7 @@ func sqliteJobInsertFullManyJobsParam(jobs []*riverdriver.JobInsertFullParams) (
 	for i, job := range jobs {
 		var attemptedBy json.RawMessage
 		if job.AttemptedBy != nil {
-			attemptedByBytes, err := json.Marshal(job.AttemptedBy)
+			attemptedByBytes, err := riverdriver.MarshalJSONNoEscapeHTML(job.AttemptedBy)
 			if err != nil {
 				return nil, err
 			}
@@ -1678,14 +1678,14 @@ func sqliteJobInsertFullManyJobsParam(jobs []*riverdriver.JobInsertFullParams) (
 
 		var errors json.RawMessage
 		if len(job.Errors) > 0 {
-			errorsBytes, err := json.Marshal(sliceutil.Map(job.Errors, func(e []byte) json.RawMessage { return json.RawMessage(e) }))
+			errorsBytes, err := riverdriver.MarshalJSONNoEscapeHTML(sliceutil.Map(job.Errors, func(e []byte) json.RawMessage { return json.RawMessage(e) }))
 			if err != nil {
 				return nil, err
 			}
 			errors = errorsBytes
 		}
 
-		tags, err := json.Marshal(job.Tags)
+		tags, err := riverdriver.MarshalJSONNoEscapeHTML(job.Tags)
 		if err != nil {
 			return nil, err
 		}
@@ -1711,7 +1711,7 @@ func sqliteJobInsertFullManyJobsParam(jobs []*riverdriver.JobInsertFullParams) (
 		}
 	}
 
-	return json.Marshal(jobsParam)
+	return riverdriver.MarshalJSONNoEscapeHTML(jobsParam)
 }
 
 // jobFromReturningRow converts a row from one of the job queries that list out

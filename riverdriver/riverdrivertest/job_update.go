@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -795,6 +796,75 @@ func exerciseJobUpdate[TTx any](ctx context.Context, t *testing.T, executorWithT
 			require.NoError(t, err)
 			require.Equal(t, rivertype.JobStateAvailable, updatedJob3.State)
 			require.False(t, gjson.GetBytes(updatedJob3.Metadata, "unique_key_conflict").Exists())
+		})
+
+		t.Run("HandlesUniqueConflictWithJobBeingScheduled", func(t *testing.T) {
+			t.Parallel()
+
+			exec, bundle := setup(ctx, t)
+
+			var (
+				horizon       = time.Now()
+				beforeHorizon = horizon.Add(-1 * time.Minute)
+			)
+
+			// job1's key is enforced while it's retryable, but job2's isn't, so
+			// both can be retryable with the same key.
+			job1 := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{
+				ScheduledAt: &beforeHorizon,
+				State:       new(rivertype.JobStateRetryable),
+				UniqueKey:   []byte("unique-key-1"),
+				UniqueStates: uniquestates.UniqueStatesToBitmask([]rivertype.JobState{
+					rivertype.JobStateAvailable,
+					rivertype.JobStatePending,
+					rivertype.JobStateRetryable,
+					rivertype.JobStateRunning,
+					rivertype.JobStateScheduled,
+				}),
+			})
+			job2 := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{
+				ScheduledAt: &beforeHorizon,
+				State:       new(rivertype.JobStateRetryable),
+				UniqueKey:   []byte("unique-key-1"),
+				UniqueStates: uniquestates.UniqueStatesToBitmask([]rivertype.JobState{
+					rivertype.JobStateAvailable,
+					rivertype.JobStatePending,
+					rivertype.JobStateRunning,
+					rivertype.JobStateScheduled,
+				}),
+			})
+
+			result, err := exec.JobSchedule(ctx, &riverdriver.JobScheduleParams{
+				Max: 100,
+				Now: &horizon,
+			})
+			require.NoError(t, err)
+			require.Len(t, result, 2)
+
+			// Postgres and SQL Server check for conflicts by unique key: job1
+			// conflicts with job2 being scheduled, so all jobs with the key are
+			// discarded, including job1 itself. SQLite checks each job for
+			// conflicts with the others, of which job1 has none because job2's
+			// key isn't enforced, so only job2 is discarded as the second job
+			// being scheduled with the key.
+			wantDiscarded := map[int64]bool{job1.ID: true, job2.ID: true}
+			if bundle.driver.DatabaseName() == riverdriver.DatabaseNameSQLite {
+				wantDiscarded[job1.ID] = false
+			}
+
+			for _, scheduled := range result {
+				require.Equal(t, wantDiscarded[scheduled.Job.ID], scheduled.ConflictDiscarded, "job %d", scheduled.Job.ID)
+
+				updatedJob, err := exec.JobGetByID(ctx, &riverdriver.JobGetByIDParams{ID: scheduled.Job.ID})
+				require.NoError(t, err)
+				if wantDiscarded[scheduled.Job.ID] {
+					require.Equal(t, rivertype.JobStateDiscarded, updatedJob.State)
+					require.Equal(t, "scheduler_discarded", gjson.GetBytes(updatedJob.Metadata, "unique_key_conflict").String())
+				} else {
+					require.Equal(t, rivertype.JobStateAvailable, updatedJob.State)
+					require.False(t, gjson.GetBytes(updatedJob.Metadata, "unique_key_conflict").Exists())
+				}
+			}
 		})
 
 		// SQLite only: jobs with JSON columns that hold invalid JSON are
@@ -1607,6 +1677,32 @@ func exerciseJobUpdate[TTx any](ctx context.Context, t *testing.T, executorWithT
 			require.Equal(t, 99, updatedJob.MaxAttempts)
 			require.JSONEq(t, `{"foo":"bar"}`, string(updatedJob.Metadata))
 			require.Equal(t, rivertype.JobStateDiscarded, updatedJob.State)
+		})
+
+		t.Run("AttemptsAboveSmallintRange", func(t *testing.T) {
+			t.Parallel()
+
+			exec, bundle := setup(ctx, t)
+
+			job := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{})
+
+			updatedJob, err := exec.JobUpdateFull(ctx, &riverdriver.JobUpdateFullParams{
+				ID:                  job.ID,
+				AttemptDoUpdate:     true,
+				Attempt:             math.MaxInt16 + 1,
+				MaxAttemptsDoUpdate: true,
+				MaxAttempts:         math.MaxInt16 + 1,
+			})
+			require.NoError(t, err)
+
+			// Postgres and SQL Server store attempts as a smallint, so values
+			// outside its range are clamped to it. SQLite's integers hold them.
+			wantAttempts := math.MaxInt16
+			if bundle.driver.DatabaseName() == riverdriver.DatabaseNameSQLite {
+				wantAttempts = math.MaxInt16 + 1
+			}
+			require.Equal(t, wantAttempts, updatedJob.Attempt)
+			require.Equal(t, wantAttempts, updatedJob.MaxAttempts)
 		})
 
 		t.Run("NoArgs", func(t *testing.T) {

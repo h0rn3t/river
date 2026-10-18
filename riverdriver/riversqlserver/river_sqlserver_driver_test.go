@@ -149,6 +149,34 @@ func TestJobInsertFastManyParam(t *testing.T) {
 	require.InDelta(t, 1, jobs[2]["unique_states"], 0)
 }
 
+func TestJobInsertMergeHint(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		jobs []*riverdriver.JobInsertFastParams
+		want string
+	}{
+		{"NoJobs", nil, ""},
+		{"NoUniqueKeys", []*riverdriver.JobInsertFastParams{
+			{Kind: "kind", State: rivertype.JobStateAvailable},
+		}, ""},
+		{"UniqueKeyNotEnforcedInState", []*riverdriver.JobInsertFastParams{
+			{Kind: "kind", State: rivertype.JobStateScheduled, UniqueKey: []byte("unique-key"), UniqueStates: 0x01},
+		}, ""},
+		{"UniqueKeyEnforced", []*riverdriver.JobInsertFastParams{
+			{Kind: "kind", State: rivertype.JobStateAvailable},
+			{Kind: "kind", State: rivertype.JobStateAvailable, UniqueKey: []byte("unique-key"), UniqueStates: 0x01},
+		}, " WITH (HOLDLOCK)"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, jobInsertMergeHint(tt.jobs), "jobInsertMergeHint(%+v)", tt.jobs)
+		})
+	}
+}
+
 func TestJobListContext(t *testing.T) {
 	t.Parallel()
 
@@ -247,4 +275,26 @@ func TestTimeString(t *testing.T) {
 
 	require.Equal(t, "2026-10-15T10:34:56.123456", timeString(time.Date(2026, 10, 15, 12, 34, 56, 123456789, time.FixedZone("UTC+2", 2*60*60))))
 	require.Equal(t, "2026-10-15T12:34:56.000000", timeString(time.Date(2026, 10, 15, 12, 34, 56, 0, time.UTC)))
+}
+
+func TestTxDBTX(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ExecutorSubTx", func(t *testing.T) {
+		t.Parallel()
+
+		subTx := &ExecutorSubTx{dbtx: templateReplaceWrapper{replacer: &sqlctemplate.Replacer{}}}
+		require.Equal(t, subTx.dbtx, txDBTX(subTx))
+	})
+
+	t.Run("ExecutorTxFromNilDriver", func(t *testing.T) {
+		t.Parallel()
+
+		// rivertest unwraps transactions with a nil driver, which leaves no
+		// driver to take a query runner from.
+		var driver *Driver
+		execTx, ok := driver.UnwrapExecutor(nil).(*ExecutorTx)
+		require.True(t, ok)
+		require.Equal(t, execTx.dbtx, txDBTX(execTx))
+	})
 }

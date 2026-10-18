@@ -96,7 +96,7 @@ func UniqueInsertMetadataWithNonce(metadata []byte, nonce string) ([]byte, error
 	}
 	metadataMap[UniqueInsertMetadataKey] = nonceJSON
 
-	metadata, err = json.Marshal(metadataMap)
+	metadata, err = MarshalJSONNoEscapeHTML(metadataMap)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling job metadata: %w", err)
 	}

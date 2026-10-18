@@ -132,13 +132,8 @@ func (g *UnStubbableTimeGenerator) StubNow(now time.Time) time.Time {
 //
 // Helps produce log-friendly service names like `riverlog.Middleware`.
 func lastPkgPathSegmentIfNotRiver(pkgPath string) string {
-	lastSlashIndex := strings.LastIndex(pkgPath, "/")
-	if lastSlashIndex == -1 {
-		return ""
-	}
-
-	lastPart := pkgPath[lastSlashIndex+1:]
-	if lastPart == "" || lastPart == "river" {
+	_, lastPart, ok := strings.CutLast(pkgPath, "/")
+	if !ok || lastPart == "" || lastPart == "river" {
 		return ""
 	}
 

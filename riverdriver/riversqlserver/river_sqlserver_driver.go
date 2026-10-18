@@ -345,7 +345,7 @@ func (e *Executor) JobCancel(ctx context.Context, params *riverdriver.JobCancelP
 				AND state NOT IN (N'cancelled', N'completed', N'discarded')
 				AND finalized_at IS NULL`
 
-		job, err := queryJob(schemaTemplateParam(ctx, params.Schema), e.txDBTX(execTx), query,
+		job, err := queryJob(schemaTemplateParam(ctx, params.Schema), txDBTX(execTx), query,
 			sql.Named("cancel_attempted_at", string(cancelAttemptedAt)),
 			sql.Named("id", params.ID),
 			sql.Named("now", nullableTime(params.Now)),
@@ -453,7 +453,7 @@ func (e *Executor) JobDelete(ctx context.Context, params *riverdriver.JobDeleteP
 				-- Do not touch running jobs:
 				AND state <> N'running'`
 
-		job, err := queryJob(schemaTemplateParam(ctx, params.Schema), e.txDBTX(execTx), query, sql.Named("id", params.ID))
+		job, err := queryJob(schemaTemplateParam(ctx, params.Schema), txDBTX(execTx), query, sql.Named("id", params.ID))
 		if errors.Is(err, rivertype.ErrNotFound) {
 			job, err := execTx.JobGetByID(ctx, (*riverdriver.JobGetByIDParams)(params))
 			if err != nil {
@@ -724,10 +724,9 @@ func (e *Executor) JobInsertFastMany(ctx context.Context, params *riverdriver.Jo
 
 	// A job conflicting with an existing one on its unique key is matched by
 	// the merge instead of inserted, and the existing job is output with
-	// `$action` set to UPDATE. `HOLDLOCK` keeps a concurrent insert of the
-	// same key from slipping in between the match and the insert.
-	const query = jobIDRangeSQL + `
-		MERGE INTO /* TEMPLATE: schema */river_job WITH (HOLDLOCK) AS river_job
+	// `$action` set to UPDATE.
+	query := jobIDRangeSQL + `
+		MERGE INTO /* TEMPLATE: schema */river_job` + jobInsertMergeHint(params.Jobs) + ` AS river_job
 		USING (` + jobInsertFastSourceSQL + `) AS job_input
 		ON river_job.unique_key_enforced = job_input.unique_key_enforced
 		-- Something needs to be updated for a row to be output on a conflict.
@@ -806,8 +805,8 @@ func (e *Executor) JobInsertFastManyNoReturning(ctx context.Context, params *riv
 		return 0, err
 	}
 
-	const query = jobIDRangeSQL + `
-		MERGE INTO /* TEMPLATE: schema */river_job WITH (HOLDLOCK) AS river_job
+	query := jobIDRangeSQL + `
+		MERGE INTO /* TEMPLATE: schema */river_job` + jobInsertMergeHint(jobs) + ` AS river_job
 		USING (` + jobInsertFastSourceSQL + `) AS job_input
 		ON river_job.unique_key_enforced = job_input.unique_key_enforced
 		WHEN NOT MATCHED THEN
@@ -891,7 +890,7 @@ func (e *Executor) JobInsertFullMany(ctx context.Context, params *riverdriver.Jo
 		}
 	}
 
-	jobsParam, err := json.Marshal(jobInputs)
+	jobsParam, err := riverdriver.MarshalJSONNoEscapeHTML(jobInputs)
 	if err != nil {
 		return nil, err
 	}
@@ -978,10 +977,13 @@ func (e *Executor) JobKindList(ctx context.Context, params *riverdriver.JobKindL
 		return nil, err
 	}
 
+	// `[` starts a character class in a T-SQL LIKE pattern, so it's escaped to
+	// match literally like it does in Postgres. `%` and `_` stay wildcards like
+	// they are in Postgres.
 	const query = `
 		SELECT DISTINCT TOP (@max) kind
 		FROM /* TEMPLATE: schema */river_job
-		WHERE (@match = N'' OR LOWER(kind) LIKE N'%' + LOWER(@match) + N'%')
+		WHERE (@match = N'' OR LOWER(kind) LIKE N'%' + REPLACE(LOWER(@match), N'[', N'[[]') + N'%')
 			AND (@after = N'' OR kind > @after)
 			AND kind NOT IN (SELECT value COLLATE Latin1_General_100_BIN2 FROM OPENJSON(@exclude))
 		ORDER BY kind ASC`
@@ -1030,7 +1032,7 @@ func (e *Executor) JobRescueMany(ctx context.Context, params *riverdriver.JobRes
 		}
 	}
 
-	jobsParam, err := json.Marshal(jobInputs)
+	jobsParam, err := riverdriver.MarshalJSONNoEscapeHTML(jobInputs)
 	if err != nil {
 		return nil, err
 	}
@@ -1095,7 +1097,7 @@ func (e *Executor) JobRetry(ctx context.Context, params *riverdriver.JobRetryPar
 					AND scheduled_at < ` + nowSQL + `
 				)`
 
-		job, err := queryJob(schemaTemplateParam(ctx, params.Schema), e.txDBTX(execTx), query,
+		job, err := queryJob(schemaTemplateParam(ctx, params.Schema), txDBTX(execTx), query,
 			sql.Named("id", params.ID),
 			sql.Named("now", nullableTime(params.Now)),
 		)
@@ -1117,6 +1119,17 @@ func (e *Executor) JobSchedule(ctx context.Context, params *riverdriver.JobSched
 	// of another job, either an existing one or another one being scheduled.
 	// In that case, the job is discarded instead (or all but the first one in
 	// the batch to be scheduled with the same key are).
+	//
+	// Unlike Postgres, SQL Server doesn't materialize a CTE referenced more
+	// than once, but evaluates it again for every reference, and the jobs
+	// picked by `TOP` could differ between evaluations under concurrent
+	// changes. So the jobs to schedule are only referenced once, and conflicts
+	// are checked per job: Postgres discards all jobs with a key if an
+	// existing job with the key in one of its unique states differs from any
+	// job being scheduled with the key, which is the case if it isn't the job
+	// itself or more than one job is being scheduled with the key. An existing
+	// job in one of its unique states is found by `unique_key_enforced`, which
+	// is the key prefixed with 0x01 exactly then, through its unique index.
 	const query = `
 		WITH jobs_to_schedule AS (
 			SELECT TOP (@max)
@@ -1140,40 +1153,25 @@ func (e *Executor) JobSchedule(ctx context.Context, params *riverdriver.JobSched
 				CASE
 					WHEN unique_key IS NOT NULL AND unique_states IS NOT NULL
 					THEN ROW_NUMBER() OVER (PARTITION BY unique_key ORDER BY priority, scheduled_at, id)
-				END AS unique_row_number
+				END AS unique_row_number,
+				count(*) OVER (PARTITION BY unique_key) AS unique_key_count
 			FROM jobs_to_schedule
-		),
-		unique_conflicts AS (
-			SELECT DISTINCT river_job.unique_key
-			FROM /* TEMPLATE: schema */river_job AS river_job
-			INNER JOIN jobs_with_unique_row_number AS job
-				ON river_job.unique_key = job.unique_key
-				AND river_job.id <> job.id
-			WHERE river_job.unique_key IS NOT NULL
-				AND river_job.unique_states IS NOT NULL
-				AND (river_job.unique_states & CASE river_job.state
-					WHEN N'available' THEN 1
-					WHEN N'cancelled' THEN 2
-					WHEN N'completed' THEN 4
-					WHEN N'discarded' THEN 8
-					WHEN N'pending'   THEN 16
-					WHEN N'retryable' THEN 32
-					WHEN N'running'   THEN 64
-					WHEN N'scheduled' THEN 128
-					ELSE 0
-				END) <> 0
 		),
 		job_updates AS (
 			SELECT
 				job.id,
 				CASE
 					WHEN job.unique_row_number IS NULL THEN N'available'
-					WHEN unique_conflicts.unique_key IS NOT NULL THEN N'discarded'
+					WHEN EXISTS (
+						SELECT 1
+						FROM /* TEMPLATE: schema */river_job AS conflict
+						WHERE conflict.unique_key_enforced = 0x01 + job.unique_key
+							AND (job.unique_key_count > 1 OR conflict.id <> job.id)
+					) THEN N'discarded'
 					WHEN job.unique_row_number = 1 THEN N'available'
 					ELSE N'discarded'
 				END AS new_state
 			FROM jobs_with_unique_row_number AS job
-			LEFT JOIN unique_conflicts ON job.unique_key = unique_conflicts.unique_key
 		)
 		UPDATE river_job
 		SET
@@ -1249,7 +1247,7 @@ func (e *Executor) JobSetStateIfRunningMany(ctx context.Context, params *riverdr
 		}
 	}
 
-	jobsParam, err := json.Marshal(jobInputs)
+	jobsParam, err := riverdriver.MarshalJSONNoEscapeHTML(jobInputs)
 	if err != nil {
 		return nil, err
 	}
@@ -1395,7 +1393,7 @@ func (e *Executor) JobUpdateFull(ctx context.Context, params *riverdriver.JobUpd
 		WHERE id = @id`
 
 	job, err := queryJob(schemaTemplateParam(ctx, params.Schema), e.dbtx, query,
-		sql.Named("attempt", int64(params.Attempt)),
+		sql.Named("attempt", int64(min(params.Attempt, math.MaxInt16))),
 		sql.Named("attempt_do_update", params.AttemptDoUpdate),
 		sql.Named("attempted_at", nullableTime(params.AttemptedAt)),
 		sql.Named("attempted_at_do_update", params.AttemptedAtDoUpdate),
@@ -1729,11 +1727,12 @@ func (e *Executor) QueueNameList(ctx context.Context, params *riverdriver.QueueN
 		return nil, err
 	}
 
+	// `[` is escaped to match literally, as in JobKindList.
 	const query = `
 		SELECT TOP (@max) name
 		FROM /* TEMPLATE: schema */river_queue
 		WHERE name > @after
-			AND (@match = N'' OR LOWER(name) LIKE N'%' + LOWER(@match) + N'%')
+			AND (@match = N'' OR LOWER(name) LIKE N'%' + REPLACE(LOWER(@match), N'[', N'[[]') + N'%')
 			AND name NOT IN (SELECT value COLLATE Latin1_General_100_BIN2 FROM OPENJSON(@exclude))
 		ORDER BY name ASC`
 
@@ -1973,11 +1972,6 @@ func (e *Executor) queryStrings(ctx context.Context, query string, args ...any) 
 		values = append(values, value)
 	}
 	return values, interpretError(rows.Err())
-}
-
-// txDBTX returns a query runner for a transaction started by dbutil.WithTxV.
-func (e *Executor) txDBTX(execTx riverdriver.ExecutorTx) templateReplaceWrapper {
-	return templateReplaceWrapper{e.driver.UnwrapTx(execTx), &e.driver.replacer}
 }
 
 // ExecutorTx is an Executor running in a transaction.
@@ -2289,7 +2283,7 @@ func attemptErrorsJSON(attemptErrors [][]byte) (json.RawMessage, error) {
 	if len(attemptErrors) < 1 {
 		return nil, nil
 	}
-	return json.Marshal(sliceutil.Map(attemptErrors, func(e []byte) json.RawMessage { return json.RawMessage(e) }))
+	return riverdriver.MarshalJSONNoEscapeHTML(sliceutil.Map(attemptErrors, func(e []byte) json.RawMessage { return json.RawMessage(e) }))
 }
 
 // emptyIfNil returns an empty slice for a nil one so that it encodes to a JSON
@@ -2382,11 +2376,24 @@ func jobInsertFastManyParam(jobs []*riverdriver.JobInsertFastParams) (string, in
 		}
 	}
 
-	data, err := json.Marshal(jobInputs)
+	data, err := riverdriver.MarshalJSONNoEscapeHTML(jobInputs)
 	if err != nil {
 		return "", 0, err
 	}
 	return string(data), numIDsToAllocate, nil
+}
+
+// jobInsertMergeHint returns the table hint of the merge inserting jobs.
+// `HOLDLOCK` keeps a concurrent insert of the same unique key from slipping in
+// between the match and the insert, but its key range locks are held until the
+// end of the transaction, blocking other inserts into the same ranges. It's left
+// out when no job has a unique key enforced in its state, in which case the
+// merge can't match anything and there's nothing to protect.
+func jobInsertMergeHint(jobs []*riverdriver.JobInsertFastParams) string {
+	if slices.ContainsFunc(jobs, uniqueKeyEnforced) {
+		return " WITH (HOLDLOCK)"
+	}
+	return ""
 }
 
 // jobListContext adds the clauses of a job list (or delete) to ctx for the
@@ -2514,7 +2521,7 @@ func jsonArrayOrNull[T any](values []T) (any, error) {
 		return nil, nil //nolint:nilnil
 	}
 
-	data, err := json.Marshal(values)
+	data, err := riverdriver.MarshalJSONNoEscapeHTML(values)
 	if err != nil {
 		return nil, err
 	}
@@ -2662,6 +2669,19 @@ func ttlArgs(ttl time.Duration) []any {
 		sql.Named("ttl_microseconds", int64(ttl%time.Second/time.Microsecond)),
 		sql.Named("ttl_seconds", int64(ttl/time.Second)),
 	}
+}
+
+// txDBTX returns the query runner of a transaction started by dbutil.WithTxV.
+// It's taken from the transaction's executor rather than the driver, which is
+// nil for an executor from UnwrapExecutor invoked on a nil driver.
+func txDBTX(execTx riverdriver.ExecutorTx) templateReplaceWrapper {
+	switch execTx := execTx.(type) {
+	case *ExecutorSubTx:
+		return execTx.dbtx
+	case *ExecutorTx:
+		return execTx.dbtx
+	}
+	panic("unhandled executor type")
 }
 
 // uniqueKeyEnforced returns true if a job's unique key is enforced in the state

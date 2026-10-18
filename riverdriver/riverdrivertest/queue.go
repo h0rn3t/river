@@ -274,6 +274,25 @@ func exerciseQueue[TTx any](ctx context.Context, t *testing.T, executorWithTx fu
 			require.NoError(t, err)
 			require.Equal(t, []string{queue1.Name, queue3.Name}, queueNames)
 		})
+
+		t.Run("MatchesSquareBracketsLiterally", func(t *testing.T) {
+			t.Parallel()
+
+			exec, _ := setup(ctx, t)
+
+			queue1 := testfactory.Queue(ctx, t, exec, &testfactory.QueueOpts{Name: new("queue[1]")})
+			_ = testfactory.Queue(ctx, t, exec, &testfactory.QueueOpts{Name: new("queue1")})
+
+			queueNames, err := exec.QueueNameList(ctx, &riverdriver.QueueNameListParams{
+				After:   "",
+				Exclude: nil,
+				Match:   "[1]",
+				Max:     10,
+				Schema:  "",
+			})
+			require.NoError(t, err)
+			require.Equal(t, []string{queue1.Name}, queueNames)
+		})
 	})
 
 	t.Run("QueuePause", func(t *testing.T) {

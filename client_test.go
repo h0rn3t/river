@@ -9988,9 +9988,9 @@ func TestInsertParamsFromJobArgsAndOptions(t *testing.T) {
 		}
 
 		args := PartialArgs{
-			JobArgsStaticKind: JobArgsStaticKind{kind: "partialArgs"},
-			Included:          true,
-			Excluded:          true,
+			kind:     "partialArgs",
+			Included: true,
+			Excluded: true,
 		}
 
 		params, err := insertParamsFromConfigArgsAndOptions(archetype, config, args, &InsertOpts{UniqueOpts: uniqueOpts})
@@ -10003,9 +10003,9 @@ func TestInsertParamsFromJobArgsAndOptions(t *testing.T) {
 		require.Equal(t, internalUniqueOpts.StateBitmask(), params.UniqueStates)
 
 		argsWithExcludedFalse := PartialArgs{
-			JobArgsStaticKind: JobArgsStaticKind{kind: "partialArgs"},
-			Included:          true,
-			Excluded:          false,
+			kind:     "partialArgs",
+			Included: true,
+			Excluded: false,
 		}
 
 		params2, err := insertParamsFromConfigArgsAndOptions(archetype, config, argsWithExcludedFalse, &InsertOpts{UniqueOpts: uniqueOpts})

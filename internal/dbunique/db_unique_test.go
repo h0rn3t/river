@@ -104,12 +104,12 @@ func TestUniqueKey(t *testing.T) {
 					ScheduledAt string `json:"scheduled_at"`
 				}
 				return EmailJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
-					Recipient:         "user@example.com",
-					Subject:           "Test Email",
-					Body:              "This is a test email.",
-					TemplateID:        101,
-					ScheduledAt:       "2024-09-15T10:00:00Z",
+					kind:        "worker_1",
+					Recipient:   "user@example.com",
+					Subject:     "Test Email",
+					Body:        "This is a test email.",
+					TemplateID:  101,
+					ScheduledAt: "2024-09-15T10:00:00Z",
 				}
 			},
 			uniqueOpts:   UniqueOpts{ByArgs: true},
@@ -126,10 +126,10 @@ func TestUniqueKey(t *testing.T) {
 					TemplateID  int    `json:"template_id"`
 				}
 				return SMSJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_2"},
-					PhoneNumber:       "555-5678",
-					Message:           "", // Empty unique field, omitted from key
-					TemplateID:        202,
+					kind:        "worker_2",
+					PhoneNumber: "555-5678",
+					Message:     "", // Empty unique field, omitted from key
+					TemplateID:  202,
 				}
 			},
 			uniqueOpts:   UniqueOpts{ByArgs: true},
@@ -146,10 +146,10 @@ func TestUniqueKey(t *testing.T) {
 					TemplateID int
 				}
 				return EmailJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
-					Recipient:         "john@example.com",
-					Subject:           "Another Test Email",
-					TemplateID:        102,
+					kind:       "worker_1",
+					Recipient:  "john@example.com",
+					Subject:    "Another Test Email",
+					TemplateID: 102,
 				}
 			},
 			uniqueOpts:   UniqueOpts{ByArgs: true},
@@ -167,10 +167,10 @@ func TestUniqueKey(t *testing.T) {
 					TemplateID int
 				}
 				return EmailJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
-					Recipient:         "john@example.com",
-					Subject:           "Another Test Email",
-					TemplateID:        102,
+					kind:       "worker_1",
+					Recipient:  "john@example.com",
+					Subject:    "Another Test Email",
+					TemplateID: 102,
 				}
 			},
 			uniqueOpts:   UniqueOpts{ByArgs: true},
@@ -194,11 +194,11 @@ func TestUniqueKey(t *testing.T) {
 					Upper   string `json:"Y"      river:"unique"`
 				}
 				return Args{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
-					Dollar:            "dollar",
-					Nested:            Nested{Amount: 1, Upper: "nested"},
-					Unicode:           "unicode",
-					Upper:             "upper",
+					kind:    "worker_1",
+					Dollar:  "dollar",
+					Nested:  Nested{Amount: 1, Upper: "nested"},
+					Unicode: "unicode",
+					Upper:   "upper",
 				}
 			},
 			uniqueOpts: UniqueOpts{ByArgs: true},
@@ -224,14 +224,14 @@ func TestUniqueKey(t *testing.T) {
 					X       string `json:"x"                   river:"unique"`
 				}
 				return PathSyntaxJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
-					Bang:              "bang",
-					Colon:             "colon",
-					Email:             "email",
-					Literal:           "literal",
-					Nested:            Nested{Value: "nested"},
-					UserID:            "u1",
-					X:                 "x",
+					kind:    "worker_1",
+					Bang:    "bang",
+					Colon:   "colon",
+					Email:   "email",
+					Literal: "literal",
+					Nested:  Nested{Value: "nested"},
+					UserID:  "u1",
+					X:       "x",
 				}
 			},
 			uniqueOpts:   UniqueOpts{ByArgs: true},
@@ -248,10 +248,10 @@ func TestUniqueKey(t *testing.T) {
 					Body      string `json:"body"`
 				}
 				return &EmailJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
-					Recipient:         "john@example.com",
-					Subject:           "Another Test Email",
-					Body:              "This is another test email.",
+					kind:      "worker_1",
+					Recipient: "john@example.com",
+					Subject:   "Another Test Email",
+					Body:      "This is another test email.",
 				}
 			},
 			uniqueOpts:   UniqueOpts{ByArgs: true},
@@ -272,7 +272,7 @@ func TestUniqueKey(t *testing.T) {
 					Body      string         `json:"body"`
 				}
 				return &EmailJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
+					kind: "worker_1",
 					Addresses: EmailAddresses{
 						Recipient: "john@example.com",
 					},
@@ -298,7 +298,7 @@ func TestUniqueKey(t *testing.T) {
 					Body      string          `json:"body"`
 				}
 				return &EmailJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
+					kind: "worker_1",
 					Addresses: &EmailAddresses{
 						Recipient: "john@example.com",
 					},
@@ -324,12 +324,10 @@ func TestUniqueKey(t *testing.T) {
 					Body    string `json:"body"`
 				}
 				return &EmailJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
-					EmailAddresses: EmailAddresses{
-						Recipient: "john@example.com",
-					},
-					Subject: "Another Test Email",
-					Body:    "This is another test email.",
+					kind:      "worker_1",
+					Recipient: "john@example.com",
+					Subject:   "Another Test Email",
+					Body:      "This is another test email.",
 				}
 			},
 			uniqueOpts:   UniqueOpts{ByArgs: true},
@@ -344,8 +342,8 @@ func TestUniqueKey(t *testing.T) {
 					MyString // anonymous non-struct field; needs to be a custom type because it has to be capitalized to be exported
 				}
 				return TaskJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_7"},
-					MyString:          "my_string_in_anonymous_field",
+					kind:     "worker_7",
+					MyString: "my_string_in_anonymous_field",
 				}
 			},
 			uniqueOpts:   UniqueOpts{ByArgs: true},
@@ -366,7 +364,7 @@ func TestUniqueKey(t *testing.T) {
 					Body      string         `json:"body"`
 				}
 				return &EmailJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
+					kind: "worker_1",
 					Addresses: EmailAddresses{
 						Recipient: "john@example.com",
 					},
@@ -392,7 +390,7 @@ func TestUniqueKey(t *testing.T) {
 					Body      string          `json:"body"`
 				}
 				return &EmailJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
+					kind: "worker_1",
 					Addresses: &EmailAddresses{
 						Recipient: "john@example.com",
 					},
@@ -420,7 +418,7 @@ func TestUniqueKey(t *testing.T) {
 					Body    string        `json:"body"`
 				}
 				return &EmailJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
+					kind: "worker_1",
 					Headers: &EmailHeaders{
 						Addresses: &EmailAddresses{
 							Recipient: "john@example.com",
@@ -448,9 +446,9 @@ func TestUniqueKey(t *testing.T) {
 					addresses EmailAddresses
 				}
 				return &EmailJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
-					Subject:           "Another Test Email",
-					Body:              "This is another test email.",
+					kind:    "worker_1",
+					Subject: "Another Test Email",
+					Body:    "This is another test email.",
 					addresses: EmailAddresses{
 						Recipient: "john@example.com",
 					},
@@ -470,10 +468,10 @@ func TestUniqueKey(t *testing.T) {
 					foo         string // won't be marshaled in JSON
 				}
 				return GenericJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_3"},
-					Description:       "A generic job without unique fields.",
-					Count:             10,
-					foo:               "bar",
+					kind:        "worker_3",
+					Description: "A generic job without unique fields.",
+					Count:       10,
+					foo:         "bar",
 				}
 			},
 			uniqueOpts: UniqueOpts{ByArgs: true},
@@ -497,7 +495,7 @@ func TestUniqueKey(t *testing.T) {
 				}
 
 				return EmailJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_1"},
+					kind: "worker_1",
 				}
 			},
 			uniqueOpts: UniqueOpts{ByArgs: true},
@@ -518,7 +516,7 @@ func TestUniqueKey(t *testing.T) {
 					Recursive RecursiveType `river:"unique"`
 				}
 				return TaskJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_7"},
+					kind: "worker_7",
 					Recursive: RecursiveType{
 						Recursive: &RecursiveType{
 							String: "level2",
@@ -546,8 +544,8 @@ func TestUniqueKey(t *testing.T) {
 					TaskID string
 				}
 				return TaskJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_4"},
-					TaskID:            "task_123",
+					kind:   "worker_4",
+					TaskID: "task_123",
 				}
 			},
 			uniqueOpts:   UniqueOpts{ByPeriod: time.Hour, ByState: []rivertype.JobState{rivertype.JobStateCompleted}},
@@ -560,7 +558,7 @@ func TestUniqueKey(t *testing.T) {
 					JobArgsStaticKind
 				}
 				return TaskJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_4"},
+					kind: "worker_4",
 				}
 			},
 			modifyInsertParamsFunc: func(insertParams *rivertype.JobInsertParams) {
@@ -578,8 +576,8 @@ func TestUniqueKey(t *testing.T) {
 					TaskID string `json:"task_id"`
 				}
 				return TaskJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_5"},
-					TaskID:            "task_123",
+					kind:   "worker_5",
+					TaskID: "task_123",
 				}
 			},
 			uniqueOpts:   UniqueOpts{ByArgs: true, ExcludeKind: true},
@@ -594,8 +592,8 @@ func TestUniqueKey(t *testing.T) {
 					TaskID string `json:"task_id"`
 				}
 				return TaskJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_6"},
-					TaskID:            "task_123",
+					kind:   "worker_6",
+					TaskID: "task_123",
 				}
 			},
 			uniqueOpts:   UniqueOpts{ByQueue: true},
@@ -610,8 +608,8 @@ func TestUniqueKey(t *testing.T) {
 					TaskID string `json:"task_id"`
 				}
 				return TaskJobArgs{
-					JobArgsStaticKind: JobArgsStaticKind{kind: "worker_7"},
-					TaskID:            "task_123",
+					kind:   "worker_7",
+					TaskID: "task_123",
 				}
 			},
 			uniqueOpts:   UniqueOpts{},

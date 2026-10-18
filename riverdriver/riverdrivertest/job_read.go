@@ -991,6 +991,25 @@ func exerciseJobRead[TTx any](ctx context.Context, t *testing.T, executorWithTx 
 			require.NoError(t, err)
 			require.Equal(t, []string{job2.Kind, job3.Kind}, jobKinds)
 		})
+
+		t.Run("MatchesSquareBracketsLiterally", func(t *testing.T) {
+			t.Parallel()
+
+			exec, _ := setup(ctx, t)
+
+			job1 := testfactory.Job(ctx, t, exec, &testfactory.JobOpts{Kind: new("job[1]")})
+			_ = testfactory.Job(ctx, t, exec, &testfactory.JobOpts{Kind: new("job1")})
+
+			jobKinds, err := exec.JobKindList(ctx, &riverdriver.JobKindListParams{
+				After:   "",
+				Exclude: nil,
+				Match:   "[1]",
+				Max:     10,
+				Schema:  "",
+			})
+			require.NoError(t, err)
+			require.Equal(t, []string{job1.Kind}, jobKinds)
+		})
 	})
 
 	t.Run("JobList", func(t *testing.T) {

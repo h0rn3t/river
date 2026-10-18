@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- River now requires Go 1.27 or newer. Every module declares `go 1.27.0` with toolchain `go1.27.2`, and Go 1.26 is no longer supported.
+
+### Fixed
+
+- The SQL Server driver only takes the key range locks that guard unique job inserts (`MERGE ... WITH (HOLDLOCK)`) when a job being inserted has a unique key, so inserts of non-unique jobs in long running transactions no longer hold them until commit.
+- The SQLite and SQL Server drivers store job args, metadata, tags, and errors as given instead of escaping `<`, `>`, and `&` in them as `<`, `>`, and `&`.
+- The SQL Server driver's job scheduler reads the jobs to schedule once per run. SQL Server evaluates a CTE again for every reference to it, so a concurrent change could previously have it check unique conflicts against a different set of jobs than the one it scheduled.
+- Fixed a nil pointer panic in the SQL Server driver when cancelling, deleting, or retrying a job through an executor unwrapped from a nil driver.
+- Fixed the SQL Server driver treating `[` in `JobKindList` and `QueueNameList` matches as the start of a `LIKE` character class rather than matching it literally like Postgres does.
+- Fixed the SQL Server driver's `JobUpdateFull` failing on an attempt count out of `smallint` range instead of clamping it like the Postgres drivers do.
+
 ## [0.50.0] - 2026-10-16
 
 ### Added

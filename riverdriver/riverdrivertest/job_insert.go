@@ -370,6 +370,34 @@ func exerciseJobInsert[TTx any](ctx context.Context, t *testing.T,
 			require.NoError(t, err)
 			require.Equal(t, uniqueKey, jobs[0].UniqueKey)
 		})
+
+		t.Run("JSONWithHTMLCharacters", func(t *testing.T) {
+			t.Parallel()
+
+			exec, _ := setup(ctx, t)
+
+			results, err := exec.JobInsertFastMany(ctx, &riverdriver.JobInsertFastManyParams{
+				Jobs: []*riverdriver.JobInsertFastParams{
+					{
+						EncodedArgs: []byte(`{"html": "<b>&</b>"}`),
+						Kind:        "test_kind",
+						MaxAttempts: rivercommon.MaxAttemptsDefault,
+						Metadata:    []byte(`{"html": "<i>&</i>"}`),
+						Priority:    rivercommon.PriorityDefault,
+						Queue:       rivercommon.QueueDefault,
+						State:       rivertype.JobStateAvailable,
+						Tags:        []string{"tag"},
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+
+			// HTML characters come back as they were given rather than escaped
+			// as `<` and the like, including where JSON is stored as text.
+			require.Contains(t, string(results[0].Job.EncodedArgs), `"<b>&</b>"`)
+			require.Contains(t, string(results[0].Job.Metadata), `"<i>&</i>"`)
+		})
 	})
 
 	t.Run("JobInsertFastManyNoReturning", func(t *testing.T) {
